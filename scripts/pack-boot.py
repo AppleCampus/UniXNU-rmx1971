@@ -5,15 +5,21 @@ The image parameters are the ones the stock boot.img carries; ABL on this board
 misloads anything that does not mirror them (see rmx1971-ios/board.toml, where
 the same table was first written down).
 
-Layout of the kernel field, as ABL expects it here:
+Layout of the kernel field:
 
-    gzip(u-boot-nodtb.bin) + sdm710-realme-rmx1971.dtb + stock appended DTBs
+    gzip(u-boot-nodtb.bin) + sdm710-realme-rmx1971.dtb [+ stock appended DTBs]
 
-U-Boot finds its own device tree right after the gzip stream; the stock DTB set
-afterwards keeps `androidboot.dtb_idx=3` meaningful for ABL, which passes the
-base FDT to us in x0 (U-Boot reads the memory map from it).
+U-Boot finds its own device tree right after the gzip stream. Two variants are
+produced because it is not yet known which one this ABL wants:
+
+  boot.img           board dtb + the stock DTB table, cmdline says dtb_idx=3
+                     (the shim on this handset is packed this way, so the table
+                     is certainly what ABL walks)
+  boot-nodtbs.img    board dtb only, no dtb_idx in the cmdline -- byte for byte
+                     the layout the Mi 8 SE port boots with on SDM710
 
 Usage: pack-boot.py PAYLOAD [-o boot.img] [--dtbs stock-appended-dtbs.bin]
+                            [--no-stock-dtbs]
 """
 
 import argparse
@@ -45,19 +51,26 @@ def main():
     ap.add_argument("-o", "--out", default="boot.img")
     ap.add_argument("--dtbs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                   "..", "firmware", "stock-appended-dtbs.bin"))
+    ap.add_argument("--no-stock-dtbs", action="store_true",
+                    help="board dtb only, and drop androidboot.dtb_idx from the cmdline")
     a = ap.parse_args()
 
-    b = BOARD
+    b = dict(BOARD)
+    if a.no_stock_dtbs:
+        b["cmdline"] = b["cmdline"].replace(" androidboot.dtb_idx=3", "")
     payload = open(a.payload, "rb").read()
     if payload[:2] != b"\x1f\x8b":
         sys.exit("error: the payload must start with the gzip stream of u-boot-nodtb.bin")
     if b"\xd0\x0d\xfe\xed" not in payload:
         sys.exit("error: no FDT in the payload; append the board dtb after the gzip stream")
 
-    dtbs = open(a.dtbs, "rb").read()
-    if dtbs[:4] != b"\xd0\x0d\xfe\xed":
-        sys.exit(f"error: {a.dtbs} is not an FDT blob")
-    kdata = payload + dtbs
+    if a.no_stock_dtbs:
+        kdata = payload
+    else:
+        dtbs = open(a.dtbs, "rb").read()
+        if dtbs[:4] != b"\xd0\x0d\xfe\xed":
+            sys.exit(f"error: {a.dtbs} is not an FDT blob")
+        kdata = payload + dtbs
 
     page = b["page_size"]
     hdr = bytearray(page)

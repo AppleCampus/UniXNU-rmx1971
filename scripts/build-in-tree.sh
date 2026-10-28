@@ -31,6 +31,12 @@ DTB="$OUT_ABS/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb"
 echo "== pack"
 gzip -9 -n -c "$OUT_ABS/u-boot-nodtb.bin" > "$OUT_ABS/u-boot-nodtb.bin.gz"
 cat "$OUT_ABS/u-boot-nodtb.bin.gz" "$DTB" > "$OUT_ABS/uboot-payload"
-python3 "$ROOT/scripts/pack-boot.py" "$OUT_ABS/uboot-payload" -o "$OUT_ABS/boot.img"
 
-ls -l "$OUT_ABS/boot.img" "$DTB" "$OUT_ABS/u-boot-nodtb.bin"
+# Two layouts: with the stock DTB table (what the shim on this board is packed
+# with) and without it (what the Mi 8 SE port boots). ABL behaviour on this
+# handset is not documented, so both are shipped and tested one after the other.
+python3 "$ROOT/scripts/pack-boot.py" "$OUT_ABS/uboot-payload" -o "$OUT_ABS/boot.img"
+python3 "$ROOT/scripts/pack-boot.py" "$OUT_ABS/uboot-payload" --no-stock-dtbs \
+        -o "$OUT_ABS/boot-nodtbs.img"
+
+ls -l "$OUT_ABS/boot.img" "$OUT_ABS/boot-nodtbs.img" "$DTB" "$OUT_ABS/u-boot-nodtb.bin"

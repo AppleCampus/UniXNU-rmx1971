@@ -1,7 +1,7 @@
 # rmx1971-unixnu
 
 U-Boot for the **Realme 5 Pro** (`RMX1971`, Qualcomm SM712 / SDM712), built as an
-Android boot image so it can be started with `fastboot boot`.
+Android boot image so it can be written to the `boot` partition.
 
 This is step 1 of a possible [UniXNU](https://github.com/FFT-infra/UniXNU) port:
 UniXNU boots through a UEFI environment, and on this SoC family the cheapest way
@@ -11,8 +11,11 @@ that path on the same silicon: `boot.img = U-Boot`, FAT payload volume on a spar
 partition, `UniXNU.efi` started from `\EFI\BOOT\BOOTAA64.EFI`, then `DarwinBoot`
 and XNU.
 
-Nothing here is installed. `fastboot boot` loads the image into RAM only; a power
-cycle returns to whatever was in `boot` before.
+Nothing here is installed by the build. On this handset the image has to be
+**flashed** to `boot` (`/dev/block/sde10`), because OPPO/realme's ABL ships
+without the `boot` command -- `fastboot boot` transfers the image and then fails
+with `FAILED (remote: 'unknown command')`. Recovery is the same one command:
+flash the previous `boot.img` back.
 
 ## State
 
@@ -53,12 +56,28 @@ start; the gzip stream plus the appended DTB is what works.
 ## Test
 
 ```sh
-fastboot boot out/boot.img
+fastboot devices
+fastboot flash boot out/boot.img
+fastboot reboot
 ```
 
 Expect the U-Boot banner over the ABL splash, then `scsi scan`, then a failed
 `bootefi bootmgr` and the prompt. A black or unchanged screen means it did not
-get that far; nothing is broken, power-cycle and the old system boots.
+get that far; the `boot` partition is the only thing touched, so flashing the
+previous image back restores everything.
+
+Two images are built, because it is not documented what this ABL does with the
+appended DTB table:
+
+| Image | Kernel field | cmdline | When |
+| --- | --- | --- | --- |
+| `boot.img` | `gzip(nodtb)` + board dtb + stock DTB table | `androidboot.dtb_idx=3` | default; mirrors how the iOS shim on this board is packed |
+| `boot-nodtbs.img` | `gzip(nodtb)` + board dtb | no `dtb_idx` | if the first one gives a black screen |
+
+If both stay black, the next variable is the console: try `bootdelay=10
+bootmenu` in `board/realme/rmx1971/rmx1971.env` and watch for any pixel change,
+then disable `CONFIG_VIDEO_SIMPLE` and see whether U-Boot reaches the prompt
+blind (it hangs instead of rebooting, which is itself a signal).
 
 ## Board facts used here
 
