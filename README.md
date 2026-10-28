@@ -66,17 +66,33 @@ Expect the U-Boot banner over the ABL splash, then `scsi scan`, then a failed
 get that far; the `boot` partition is the only thing touched, so flashing the
 previous image back restores everything.
 
-Three images are built. The first one was tried on hardware and left the screen
-on the realme logo: ABL picked a *stock* device tree out of the appended table,
-and a stock DTB has no `simple-framebuffer`, so U-Boot ran with no console.
+### What the ABL actually wants
 
-| Image | Kernel field | Purpose |
+Two attempts on hardware narrowed it down, and neither matched the sibling port:
+
+| Tried | Result |
+| --- | --- |
+| `gzip(nodtb)` + board DTB + the vendor's six DTBs | stops on the realme logo |
+| `gzip(nodtb)` + board DTB alone | drops straight to fastboot, exactly like an empty `boot` partition |
+
+The working iOS image on this same handset is packed as `gzip(payload)` followed
+by the vendor's six DTBs, untouched. That is the layout ABL is happy with, so
+`scripts/patch-stock-dtb.py` stops competing with it and edits the vendor DTB
+in place instead -- everything the vendor put there (PMIC, clocks, GENI UART,
+UFS, `oppo,prjversion`, the ABL identity fields) is kept, plus two nodes:
+
+- `framebuffer@9c000000` (`simple-framebuffer`, 1080x2340, stride 4320, `a8r8g8b8`)
+  at the splash carve-out the ABL leaves behind, so U-Boot has an output device;
+- a `/memory` window -- the vendor node has `reg = <0 0 0 0>`, because Android
+  reads RAM from SMEM, and `fdtdec_setup_mem_size_base()` hangs on a zero size.
+
+| Image | How it is built | Purpose |
 | --- | --- | --- |
-| `boot-nodtbs.img` | `gzip(nodtb)` + board dtb, nothing else | **use this one**: the only DTB ABL can find is ours, which is what the Mi 8 SE port does |
-| `boot.img` | `gzip(nodtb)` + board dtb + the stock DTB table | kept for reference; ABL selected a stock DTB from it |
-| `boot-probe.img` | same as `boot-nodtbs.img`, different env | proves the CPU runs U-Boot at all: `bootcmd` sleeps 15 s then resets, so the handset reboots by itself. Sitting on the logo forever means U-Boot never reached `bootcmd` |
+| `boot.img` | `gzip(nodtb)` + patched vendor DTB table | **flash this one** |
+| `boot-probe.img` | same, env is `sleep 15; reset` | proves the CPU executes U-Boot even with no display: the handset reboots by itself ~17 s after the splash |
+| `boot-boarddtb.img` | `gzip(nodtb)` + board DTB + vendor table | the first attempt, kept because it reproduces the logo hang |
 
-The probe env (`board/realme/rmx1971/rmx1971-probe.env`) is compiled in, which
+The probe environment is compiled in (`CONFIG_ENV_DEFAULT_ENV_TEXT_FILE`), which
 is why it needs a second build directory rather than an env change at run time.
 
 ## Board facts used here

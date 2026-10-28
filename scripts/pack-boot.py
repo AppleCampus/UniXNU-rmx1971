@@ -7,19 +7,19 @@ the same table was first written down).
 
 Layout of the kernel field:
 
-    gzip(u-boot-nodtb.bin) + sdm710-realme-rmx1971.dtb [+ stock appended DTBs]
+    gzip(u-boot-nodtb.bin) + <DTB table>
 
-U-Boot finds its own device tree right after the gzip stream. Two variants are
-produced because it is not yet known which one this ABL wants:
+The default table is the vendor's own six DTBs, which is what the working iOS
+image on this handset carries and the only table this ABL is known to accept:
 
-  boot.img           board dtb + the stock DTB table, cmdline says dtb_idx=3
-                     (the shim on this handset is packed this way, so the table
-                     is certainly what ABL walks)
-  boot-nodtbs.img    board dtb only, no dtb_idx in the cmdline -- byte for byte
-                     the layout the Mi 8 SE port boots with on SDM710
+  --dtb-table FILE   append FILE verbatim (patch-stock-dtb.py output: the vendor
+                     table with a framebuffer node and a /memory window added)
+  --no-stock-dtbs    payload as-is, board DTB only, no dtb_idx (drops to fastboot
+                     on this board, kept for experiments)
+  default            board DTB + the vendor table, cmdline says dtb_idx=3
 
-Usage: pack-boot.py PAYLOAD [-o boot.img] [--dtbs stock-appended-dtbs.bin]
-                            [--no-stock-dtbs]
+Usage: pack-boot.py PAYLOAD [-o boot.img] [--dtb-table FILE]
+                            [--dtbs stock-appended-dtbs.bin] [--no-stock-dtbs]
 """
 
 import argparse
@@ -53,18 +53,27 @@ def main():
                                                   "..", "firmware", "stock-appended-dtbs.bin"))
     ap.add_argument("--no-stock-dtbs", action="store_true",
                     help="board dtb only, and drop androidboot.dtb_idx from the cmdline")
+    ap.add_argument("--dtb-table",
+                    help="append this FDT table (the vendor's own, optionally patched by "
+                         "patch-stock-dtb.py) instead of the board dtb + stock table; the "
+                         "payload may then be the bare gzip stream")
     a = ap.parse_args()
 
     b = dict(BOARD)
-    if a.no_stock_dtbs:
+    if a.no_stock_dtbs or a.dtb_table:
         b["cmdline"] = b["cmdline"].replace(" androidboot.dtb_idx=3", "")
     payload = open(a.payload, "rb").read()
     if payload[:2] != b"\x1f\x8b":
         sys.exit("error: the payload must start with the gzip stream of u-boot-nodtb.bin")
-    if b"\xd0\x0d\xfe\xed" not in payload:
+    if not a.dtb_table and b"\xd0\x0d\xfe\xed" not in payload:
         sys.exit("error: no FDT in the payload; append the board dtb after the gzip stream")
 
-    if a.no_stock_dtbs:
+    if a.dtb_table:
+        table = open(a.dtb_table, "rb").read()
+        if table[:4] != b"\xd0\x0d\xfe\xed":
+            sys.exit(f"error: {a.dtb_table} is not an FDT blob")
+        kdata = payload + table
+    elif a.no_stock_dtbs:
         kdata = payload
     else:
         dtbs = open(a.dtbs, "rb").read()

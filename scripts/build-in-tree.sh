@@ -30,16 +30,30 @@ DTB="$OUT_ABS/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb"
 
 echo "== pack"
 gzip -9 -n -c "$OUT_ABS/u-boot-nodtb.bin" > "$OUT_ABS/u-boot-nodtb.bin.gz"
-cat "$OUT_ABS/u-boot-nodtb.bin.gz" "$DTB" > "$OUT_ABS/uboot-payload"
 
-# Two layouts: with the stock DTB table (what the shim on this board is packed
-# with) and without it (what the Mi 8 SE port boots). ABL behaviour on this
-# handset is not documented, so both are shipped and tested one after the other.
-python3 "$ROOT/scripts/pack-boot.py" "$OUT_ABS/uboot-payload" -o "$OUT_ABS/boot.img"
-python3 "$ROOT/scripts/pack-boot.py" "$OUT_ABS/uboot-payload" --no-stock-dtbs \
-        -o "$OUT_ABS/boot-nodtbs.img"
+# The vendor's own DTB table, with two nodes added: a simple-framebuffer at the
+# ABL splash address and a /memory window (the vendor node has reg = <0 0 0 0>
+# because Android learns RAM from SMEM; U-Boot hangs on an empty one).
+#
+# This is the layout the working iOS shim on this handset uses -- gzip(payload)
+# followed by the six stock DTBs, nothing else -- and it is the only one this
+# ABL has ever accepted: a hand-written board DTB as the sole table entry falls
+# straight through to fastboot, and board DTB + stock table stops on the logo.
+python3 "$ROOT/scripts/patch-stock-dtb.py" "$ROOT/firmware/stock-appended-dtbs.bin" \
+        "$OUT_ABS/stock-fb.bin"
+python3 "$ROOT/scripts/pack-boot.py" "$OUT_ABS/u-boot-nodtb.bin.gz" \
+        --dtb-table "$OUT_ABS/stock-fb.bin" -o "$OUT_ABS/boot.img"
 
-ls -l "$OUT_ABS/boot.img" "$OUT_ABS/boot-nodtbs.img" "$DTB" "$OUT_ABS/u-boot-nodtb.bin"
+# Kept for the record: the board DTB ahead of the stock table. Stops on the
+# realme logo (the board DTB wins the match and U-Boot has no /memory there).
+python3 - "$OUT_ABS/u-boot-nodtb.bin.gz" "$DTB" "$OUT_ABS/uboot-payload" <<'PY'
+import sys
+open(sys.argv[3], 'wb').write(open(sys.argv[1], 'rb').read() + open(sys.argv[2], 'rb').read())
+PY
+python3 "$ROOT/scripts/pack-boot.py" "$OUT_ABS/uboot-payload" -o "$OUT_ABS/boot-boarddtb.img"
+
+ls -l "$OUT_ABS/boot.img" "$OUT_ABS/boot-boarddtb.img" "$OUT_ABS/stock-fb.bin" \
+      "$DTB" "$OUT_ABS/u-boot-nodtb.bin"
 
 # ---------------------------------------------------------------------------
 # Second pass: the same payload, but with a default environment that proves the
@@ -58,7 +72,6 @@ make -s O="$PROBE_OUT" -j"$(nproc)" \
 grep -q "rmx1971-probe.env" "$PROBE_OUT/include/generated/autoconf.h" \
     || { echo "error: probe env did not take effect" >&2; exit 1; }
 gzip -9 -n -c "$PROBE_OUT/u-boot-nodtb.bin" > "$PROBE_OUT/u-boot-nodtb.bin.gz"
-cat "$PROBE_OUT/u-boot-nodtb.bin.gz" "$DTB" > "$PROBE_OUT/uboot-payload"
-python3 "$ROOT/scripts/pack-boot.py" "$PROBE_OUT/uboot-payload" --no-stock-dtbs \
-        -o "$OUT_ABS/boot-probe.img"
+python3 "$ROOT/scripts/pack-boot.py" "$PROBE_OUT/u-boot-nodtb.bin.gz" \
+        --dtb-table "$OUT_ABS/stock-fb.bin" -o "$OUT_ABS/boot-probe.img"
 ls -l "$OUT_ABS/boot-probe.img"

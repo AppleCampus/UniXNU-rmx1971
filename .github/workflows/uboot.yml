@@ -31,12 +31,13 @@ jobs:
 
       - name: Report
         run: |
-          sha256sum out/boot.img out/boot-nodtbs.img out/boot-probe.img \
+          sha256sum out/boot.img out/boot-boarddtb.img out/boot-probe.img \
+            out/stock-fb.bin \
             out/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb \
             out/u-boot-nodtb.bin > out/SHA256SUMS
           cat out/SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          grep -E "^(CONFIG_EFI_LOADER|CONFIG_VIDEO_SIMPLE|CONFIG_UFS_QCOM|CONFIG_DEFAULT_DEVICE_TREE)=" \
+          grep -E "^(CONFIG_EFI_LOADER|CONFIG_VIDEO_SIMPLE|CONFIG_SYS_CONSOLE_IS_IN_ENV|CONFIG_UFS_QCOM|CONFIG_DEFAULT_DEVICE_TREE)=" \
             out/.config >> "$GITHUB_STEP_SUMMARY" || true
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
@@ -45,7 +46,7 @@ jobs:
           name: rmx1971-uboot
           path: |
             out/boot.img
-            out/boot-nodtbs.img
+            out/boot-boarddtb.img
             out/boot-probe.img
             out/SHA256SUMS
             out/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb
