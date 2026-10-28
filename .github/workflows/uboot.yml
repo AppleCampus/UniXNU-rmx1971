@@ -35,13 +35,14 @@ jobs:
       - name: Report
         run: |
           sha256sum out/boot.img out/boot-boarddtb.img out/boot-probe.img \
+            out/boot-diag.img \
             out-stub/boot-stub.img out-stub/paint-fb.bin \
             out/stock-fb.bin \
             out/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb \
             out/u-boot+dtb.bin > out/SHA256SUMS
           cat out/SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          grep -E "^(CONFIG_EFI_LOADER|CONFIG_VIDEO_SIMPLE|CONFIG_SYS_CONSOLE_IS_IN_ENV|CONFIG_UFS_QCOM|CONFIG_DEFAULT_DEVICE_TREE)=" \
+          grep -E "^(CONFIG_EFI_LOADER|CONFIG_VIDEO_SIMPLE|CONFIG_SYS_CONSOLE_IS_IN_ENV|CONFIG_UFS_QCOM|CONFIG_DEFAULT_DEVICE_TREE|CONFIG_EFI_PARTITION|CONFIG_CMD_PART|CONFIG_CMD_FAT|CONFIG_FS_FAT|CONFIG_CMD_FS_GENERIC)=" \
             out/.config >> "$GITHUB_STEP_SUMMARY" || true
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo '### paint-fb' >> "$GITHUB_STEP_SUMMARY"
@@ -61,6 +62,7 @@ jobs:
             out/boot.img
             out/boot-boarddtb.img
             out/boot-probe.img
+            out/boot-diag.img
             out/SHA256SUMS
             out/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb
             out/.config

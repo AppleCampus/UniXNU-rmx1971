@@ -20,6 +20,23 @@ build() { # $1 = build dir
 	make -s O="$1" -j"$(nproc)" DEVICE_TREE="$DEVICE_TREE" CROSS_COMPILE="$CROSS"
 }
 
+# kconfig silently drops a symbol whose dependencies are not met, and most of
+# what this board needs (partition tables, FAT) is not selected by qcom_defconfig
+# at all. Without this check the build stays green and the handset boots into a
+# U-Boot that answers "Unknown command 'part'" -- one wasted flash cycle per
+# missing symbol.
+require_config() { # $1 = build dir, $2.. = symbols that must end up 'y'
+	local dir=$1 sym
+	shift
+	for sym in "$@"; do
+		grep -qx "CONFIG_${sym}=y" "$dir/.config" || {
+			echo "error: CONFIG_$sym missing from $dir/.config" >&2
+			exit 1
+		}
+	done
+	echo "    required config ok: $*"
+}
+
 # The arm64 Image header in front of the payload has to say text_offset 0: this
 # ABL computes a load address from that field, and 0 is what the working iOS
 # payload on this handset carries (text_offset 0, code at +0x800, image_size =
@@ -147,6 +164,7 @@ echo "== defconfig"
 # kconfig resolves a fragment by basename through `find board -name <target>`,
 # so the path must not be passed here.
 make -s O="$OUT_ABS" qcom_defconfig qcom-phone.config rmx1971.config
+require_config "$OUT_ABS" EFI_PARTITION CMD_PART CMD_FAT FS_FAT CMD_FS_GENERIC
 
 echo "== build"
 build "$OUT_ABS"
@@ -179,19 +197,32 @@ ls -l "$OUT_ABS/boot.img" "$OUT_ABS/boot-boarddtb.img" "$OUT_ABS/stock-fb.bin" \
       "$OUT_ABS/u-boot+dtb.bin"
 
 # ---------------------------------------------------------------------------
-# Second pass: the same payload, but with a default environment that proves the
-# CPU is executing U-Boot without needing the display. The environment is
-# compiled into the binary (CONFIG_ENV_DEFAULT_ENV_TEXT_FILE), so this needs its
-# own build directory rather than an env change at run time.
-PROBE_OUT="$(dirname "$OUT_ABS")/out-probe"
-echo "== build probe ($PROBE_OUT)"
-make -s O="$PROBE_OUT" qcom_defconfig qcom-phone.config rmx1971.config
-bash ./scripts/config --file "$PROBE_OUT/.config" --set-str ENV_DEFAULT_ENV_TEXT_FILE \
-     board/realme/rmx1971/rmx1971-probe.env
-make -s O="$PROBE_OUT" olddefconfig
-build "$PROBE_OUT"
-grep -q "rmx1971-probe.env" "$PROBE_OUT/include/generated/autoconf.h" \
-    || { echo "error: probe env did not take effect" >&2; exit 1; }
-make_payload "$PROBE_OUT" "$PROBE_OUT/payload.gz"
-pack "$PROBE_OUT/payload.gz" "$OUT_ABS/boot-probe.img"
-ls -l "$OUT_ABS/boot-probe.img"
+# Extra passes: the same payload with a different default environment. A wrong
+# environment costs a flash cycle on a retail handset that cannot be typed at,
+# so each experiment is built as its own boot image instead of being an edit
+# made after the fact:
+#
+#   probe - proof of life: no storage, no video dependence, resets itself
+#   diag  - read-only storage and partition reconnaissance
+#
+# The environment is compiled into the binary
+# (CONFIG_ENV_DEFAULT_ENV_TEXT_FILE), hence a build directory per variant
+# rather than an env change at run time.
+build_env_variant() { # $1 = variant name, $2 = env file, $3 = boot image name
+	local name=$1 envf=$2 img=$3 dir
+	dir="$(dirname "$OUT_ABS")/out-$name"
+	echo "== build $name ($dir)"
+	make -s O="$dir" qcom_defconfig qcom-phone.config rmx1971.config
+	bash ./scripts/config --file "$dir/.config" --set-str ENV_DEFAULT_ENV_TEXT_FILE \
+	     "$envf"
+	make -s O="$dir" olddefconfig
+	build "$dir"
+	grep -q "$(basename "$envf")" "$dir/include/generated/autoconf.h" \
+	    || { echo "error: $name env did not take effect" >&2; exit 1; }
+	make_payload "$dir" "$dir/payload.gz"
+	pack "$dir/payload.gz" "$OUT_ABS/$img"
+	ls -l "$OUT_ABS/$img"
+}
+
+build_env_variant probe board/realme/rmx1971/rmx1971-probe.env boot-probe.img
+build_env_variant diag  board/realme/rmx1971/rmx1971-diag.env  boot-diag.img
