@@ -31,9 +31,11 @@ DTB="$OUT_ABS/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb"
 echo "== pack"
 gzip -9 -n -c "$OUT_ABS/u-boot-nodtb.bin" > "$OUT_ABS/u-boot-nodtb.bin.gz"
 
-# The vendor's own DTB table, with two nodes added: a simple-framebuffer at the
-# ABL splash address and a /memory window (the vendor node has reg = <0 0 0 0>
-# because Android learns RAM from SMEM; U-Boot hangs on an empty one).
+# The vendor's own DTB table, with two nodes added to *every* entry: a
+# simple-framebuffer at the ABL splash address and a /memory window (the vendor
+# nodes all have reg = <0 0 0 0> because Android learns RAM from SMEM; U-Boot
+# panics on an empty one, before the console exists, which looks exactly like a
+# dead handset on the splash).
 #
 # This is the layout the working iOS shim on this handset uses -- gzip(payload)
 # followed by the six stock DTBs, nothing else -- and it is the only one this

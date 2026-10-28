@@ -10,10 +10,18 @@ arguing with it: patch the vendor DTB in place, keep every node it already has
 (UFS, PMIC, clocks, GENI UART), and add the one thing Android never needed --
 a simple-framebuffer pointing at the splash carve-out the ABL leaves behind.
 
+Every DTB in the table is patched by default. That matters: the ABL picks one
+entry by matching qcom,msm-id against the SoC it is running on, and nothing we
+control says which one it takes. The vendor fills /memory with reg = <0 0 0 0> in
+*all six* of them, so patching a single entry leaves U-Boot to panic on
+"No valid memory ranges found!" whenever the ABL picks a different one -- and
+that panic happens before the console exists, i.e. the handset just sits on the
+splash forever with no way to reset itself.
+
 Usage:
-  patch-stock-dtb.py IN.bin OUT.bin [--fb-base 0x9c000000] [--fb-size 0x2300000]
-                     [--width 1080] [--height 2340] [--stride 4320]
-                     [--format a8r8g8b8] [--bootargs TEXT]
+  patch-stock-dtb.py IN.bin OUT.bin [--index all|N] [--fb-base 0x9c000000]
+                     [--fb-size 0x2300000] [--width 1080] [--height 2340]
+                     [--stride 4320] [--format a8r8g8b8] [--bootargs TEXT]
 """
 
 import argparse
@@ -146,8 +154,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("src")
     ap.add_argument("dst")
-    ap.add_argument("--index", type=int, default=0,
-                    help="which DTB of the table to patch (0 matches SM712)")
+    ap.add_argument("--index", default="all",
+                    help="which DTB of the table to patch: 'all' (default) or a "
+                         "0-based index")
     ap.add_argument("--fb-base", default="0x9c000000")
     ap.add_argument("--fb-size", default="0x2300000")
     ap.add_argument("--width", type=int, default=1080)
@@ -164,56 +173,69 @@ def main():
     table = split_blob(blob)
     if not table:
         sys.exit(f"error: no FDT in {a.src}")
-    if a.index >= len(table):
-        sys.exit(f"error: table has {len(table)} DTBs, index {a.index} is out of range")
-
-    off, size = table[a.index]
-    root, rsv = parse(blob[off:off + size])
-    rt = find_root(root)
+    if a.index == "all":
+        targets = list(range(len(table)))
+    else:
+        targets = [int(a.index)]
+        if targets[0] >= len(table):
+            sys.exit(f"error: table has {len(table)} DTBs, index {a.index} is out of range")
 
     base = int(a.fb_base, 0)
     fbsize = int(a.fb_size, 0)
     stride = a.stride or a.width * 4
 
-    fb = rt.ensure(f"framebuffer@{base:x}")
-    fb.props = {
-        "compatible": b"simple-framebuffer\0",
-        "status": b"okay\0",
-        "reg": struct.pack(">IIII", 0, base, 0, fbsize),
-        "width": struct.pack(">I", a.width),
-        "height": struct.pack(">I", a.height),
-        "stride": struct.pack(">I", stride),
-        "format": a.format.encode() + b"\0",
-    }
+    def patch(off, size):
+        root, rsv = parse(blob[off:off + size])
+        rt = find_root(root)
 
-    chosen = rt.ensure("chosen")
-    if a.bootargs:
-        chosen.props["bootargs"] = a.bootargs.encode() + b"\0"
-    else:
-        chosen.props.pop("bootargs", None)
+        fb = rt.ensure(f"framebuffer@{base:x}")
+        fb.props = {
+            "compatible": b"simple-framebuffer\0",
+            "status": b"okay\0",
+            "reg": struct.pack(">IIII", 0, base, 0, fbsize),
+            "width": struct.pack(">I", a.width),
+            "height": struct.pack(">I", a.height),
+            "stride": struct.pack(">I", stride),
+            "format": a.format.encode() + b"\0",
+        }
 
-    # The vendor DTB carries `/memory` with reg = <0 0 0 0>: on Android the
-    # kernel learns its RAM from SMEM instead, so the node was never filled in.
-    # U-Boot does the opposite -- fdtdec_setup_mem_size_base() reads this node
-    # and hangs when ram_size comes back 0 -- so put a window in it. The default
-    # is the low 1.97 GiB, the same window ios-sweet hands to XNU: everything
-    # above 0x100000000 stays untouched, and the splash carve-out at 0x9c000000
-    # is already marked no-map in reserved-memory, so the allocator passes over it.
-    mem = rt.ensure("memory")
-    mem.props["device_type"] = b"memory\0"
-    mem.props["reg"] = struct.pack(">IIII", 0, int(a.mem_base, 0), 0, int(a.mem_size, 0))
+        chosen = rt.ensure("chosen")
+        if a.bootargs:
+            chosen.props["bootargs"] = a.bootargs.encode() + b"\0"
+        else:
+            chosen.props.pop("bootargs", None)
 
-    patched = serialize(root, rsv)
-    if patched[:4] != FDT_MAGIC:
-        sys.exit("error: serializer produced garbage")
+        # The vendor DTB carries `/memory` with reg = <0 0 0 0>: on Android the
+        # kernel learns its RAM from SMEM instead, so the node was never filled
+        # in. U-Boot does the opposite -- qcom_parse_memory() feeds this node to
+        # gd->ram_base/ram_size and panics when it comes back empty -- so put a
+        # window in it. The default is the low 1.97 GiB, the same window
+        # ios-sweet hands to XNU: everything above 0x100000000 stays untouched,
+        # and the splash carve-out at 0x9c000000 is already marked no-map in
+        # reserved-memory, so U-Boot relocates to the top of the window instead
+        # of landing on the framebuffer.
+        mem = rt.ensure("memory")
+        mem.props["device_type"] = b"memory\0"
+        mem.props["reg"] = struct.pack(">IIII", 0, int(a.mem_base, 0), 0,
+                                      int(a.mem_size, 0))
+
+        return serialize(root, rsv)
 
     out = bytearray()
     for k, (o, s) in enumerate(table):
-        out.extend(patched if k == a.index else blob[o:o + s])
+        if k in targets:
+            patched = patch(o, s)
+            if patched[:4] != FDT_MAGIC:
+                sys.exit("error: serializer produced garbage")
+            out.extend(patched)
+            print(f"patched DTB #{k}: {s} -> {len(patched)} bytes")
+        else:
+            out.extend(blob[o:o + s])
+            print(f"kept    DTB #{k}: {s} bytes")
     open(a.dst, "wb").write(out)
-    print(f"patched DTB #{a.index}: {size} -> {len(patched)} bytes; "
-          f"table of {len(table)} -> {len(out)} bytes")
+    print(f"table of {len(table)} -> {len(out)} bytes")
     print(f"framebuffer {base:#x} {a.width}x{a.height} stride {stride} {a.format}")
+    print(f"memory @ {int(a.mem_base, 0):#x} size {int(a.mem_size, 0):#x}")
 
 
 if __name__ == "__main__":

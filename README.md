@@ -22,7 +22,7 @@ flash the previous `boot.img` back.
 | Piece | State |
 | --- | --- |
 | U-Boot defconfig, env, DTS for RMX1971 | written, builds in CI |
-| First light (U-Boot banner on the ABL splash) | **not yet confirmed on hardware** |
+| First light (U-Boot banner on the ABL splash) | **not yet confirmed on hardware** — the ABL accepts the image and jumps, U-Boot then dies before the console: see below |
 | Storage (UFS at `0x1d84000`) | node enabled, untested |
 | Input, USB, panel init | not attempted — the ABL already leaves a lit panel |
 
@@ -46,12 +46,14 @@ The recipe follows sirius's, which is the only known-good one for this SoC:
 ```sh
 make O=out qcom_defconfig qcom-phone.config board/realme/rmx1971/rmx1971.config
 make O=out DEVICE_TREE=qcom/sdm710-realme-rmx1971
-gzip -c out/u-boot-nodtb.bin > u-boot-nodtb.bin.gz
-cat u-boot-nodtb.bin.gz sdm710-realme-rmx1971.dtb > uboot-payload
+gzip -9 -n -c out/u-boot-nodtb.bin > u-boot-nodtb.bin.gz
+scripts/patch-stock-dtb.py firmware/stock-appended-dtbs.bin out/stock-fb.bin
+scripts/pack-boot.py out/u-boot-nodtb.bin.gz --dtb-table out/stock-fb.bin -o out/boot.img
 ```
 
 `u-boot.bin` as the kernel field returns `OKAY` to `fastboot boot` and does not
-start; the gzip stream plus the appended DTB is what works.
+start; a gzip stream is what the ABL expects to decompress, so `u-boot-nodtb.bin`
+goes in gzipped, followed by the DTB table.
 
 ## Test
 
@@ -74,22 +76,33 @@ Two attempts on hardware narrowed it down, and neither matched the sibling port:
 | --- | --- |
 | `gzip(nodtb)` + board DTB + the vendor's six DTBs | stops on the realme logo |
 | `gzip(nodtb)` + board DTB alone | drops straight to fastboot, exactly like an empty `boot` partition |
+| `gzip(nodtb)` + the vendor's six DTBs, entry 0 patched | stops on the realme logo, and the probe build (`sleep 15; reset`) does **not** reboot either |
 
 The working iOS image on this same handset is packed as `gzip(payload)` followed
 by the vendor's six DTBs, untouched. That is the layout ABL is happy with, so
-`scripts/patch-stock-dtb.py` stops competing with it and edits the vendor DTB
+`scripts/patch-stock-dtb.py` stops competing with it and edits the vendor DTBs
 in place instead -- everything the vendor put there (PMIC, clocks, GENI UART,
 UFS, `oppo,prjversion`, the ABL identity fields) is kept, plus two nodes:
 
 - `framebuffer@9c000000` (`simple-framebuffer`, 1080x2340, stride 4320, `a8r8g8b8`)
   at the splash carve-out the ABL leaves behind, so U-Boot has an output device;
-- a `/memory` window -- the vendor node has `reg = <0 0 0 0>`, because Android
-  reads RAM from SMEM, and `fdtdec_setup_mem_size_base()` hangs on a zero size.
+- a `/memory` window -- every vendor entry has `reg = <0 0 0 0>`, because Android
+  reads RAM from SMEM, and `qcom_parse_memory()` panics on a zero size.
+
+**All six entries get both nodes**, not just one. The ABL picks an entry by
+matching `qcom,msm-id` against the SoC, which is entry 3 on this handset and not
+something the image can dictate; patching a single entry leaves U-Boot to panic
+`"No valid memory ranges found!"` whenever a different one is selected, and that
+panic runs before the console exists -- a handset that sits on the splash and
+never resets looks identical whether the CPU never started or died in
+`board_init_f`. Patching every entry removes the guess.
+
+`gzip(nodtb)` alone, with no table, is the one shape the ABL rejects outright.
 
 | Image | How it is built | Purpose |
 | --- | --- | --- |
 | `boot.img` | `gzip(nodtb)` + patched vendor DTB table | **flash this one** |
-| `boot-probe.img` | same, env is `sleep 15; reset` | proves the CPU executes U-Boot even with no display: the handset reboots by itself ~17 s after the splash |
+| `boot-probe.img` | same, env is `sleep 15; reset` | proves U-Boot reached `bootcmd` even with no display: the handset reboots by itself ~17 s after the splash |
 | `boot-boarddtb.img` | `gzip(nodtb)` + board DTB + vendor table | the first attempt, kept because it reproduces the logo hang |
 
 The probe environment is compiled in (`CONFIG_ENV_DEFAULT_ENV_TEXT_FILE`), which
@@ -105,10 +118,13 @@ Taken from this handset, not from the reference board:
 | Framebuffer | `0x9c000000`, 1080x2340, stride `1080*4`, `a8r8g8b8` | ABL `cont_splash`, the same numbers the iOS port uses |
 | Storage | UFS host `0x1d84000` (no eMMC) | `/dev/block/sde*` on the device |
 | GIC / timer | GICD `0x17a00000`, GICR `0x17a60000`, 19.2 MHz, vtimer INTID 19 | `UniXNU-sdm710-common` and the iOS port's ADT |
-| Boot image | page 4096, kernel `0x8000`, ramdisk `0x1000000`, tags `0x100`, header v1, `dtb_idx=3` | stock `boot.img` |
+| Boot image | page 4096, kernel `0x8000`, ramdisk `0x1000000`, tags `0x100`, header v1 | stock `boot.img` |
 
-`firmware/stock-appended-dtbs.bin` ships with the image because ABL reads
-`dtb_idx=3` from it; it contains no serial numbers or calibration data.
+`firmware/stock-appended-dtbs.bin` is the vendor's appended-DTB area, six FDTs
+concatenated with no padding, straight out of the stock `boot.img`. It ships
+with the image because the ABL needs a table it can match by `qcom,msm-id`;
+`androidboot.dtb_idx` is *not* passed (the ABL decides, the image cannot). It
+contains no serial numbers or calibration data.
 
 ## Differences from sirius
 
