@@ -75,7 +75,8 @@ entry:
 3:	str	w6, [x10], #4
 	subs	x9, x9, #1
 	b.ne	3b
-	add	x7, x7, #4320			/* next row: 1080 * 4 */
+	add	x7, x7, #4096			/* next row: 1080 * 4 = 4320, but */
+	add	x7, x7, #224			/* ADD takes a 12-bit immediate */
 	subs	x8, x8, #1
 	b.ne	2b
 
