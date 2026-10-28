@@ -73,23 +73,27 @@
 		};
 	};
 
-	chosen {
-		// No access to UART...
-		stdout-path = "framebuffer";
-
-		#address-cells = <2>;
-		#size-cells = <2>;
-		ranges;
-
-		framebuffer: framebuffer@9c000000 {
-			compatible = "simple-framebuffer";
-			reg = <0 0x9c000000 0 (1080 * 2340 * 4)>;
-			width = <1080>;
-			height = <2340>;
-			stride = <(1080 * 4)>;
-			format = "a8r8g8b8";
-			status = "okay";
-		};
+	/*
+	 * The framebuffer stays at the root, not under /chosen where the sirius
+	 * DTS puts it. Driver model walks the children of the root node and
+	 * recurses only into nodes bound as simple-bus (dm_scan_fdt_node() ->
+	 * simple_bus_post_bind()), and /chosen has no driver: a framebuffer
+	 * nested under it is never bound, `vidconsole` never appears, and the
+	 * board runs with nowhere to print. There is no UART on a retail unit,
+	 * so that would be a silent board.
+	 *
+	 * No chosen/stdout-path either: U-Boot reads that property as a device
+	 * name, not a path, and the compiled environment already says
+	 * stdout=serial,vidconsole.
+	 */
+	framebuffer: framebuffer@9c000000 {
+		compatible = "simple-framebuffer";
+		reg = <0 0x9c000000 0 (1080 * 2340 * 4)>;
+		width = <1080>;
+		height = <2340>;
+		stride = <(1080 * 4)>;
+		format = "a8r8g8b8";
+		status = "okay";
 	};
 
 	reserved-memory {

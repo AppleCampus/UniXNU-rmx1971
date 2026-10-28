@@ -177,6 +177,13 @@ must be at `len(u-boot-nodtb.bin)` inside the payload, `/memory` must be 16 byte
 and -- as a second opinion that shares no code with ours -- the `dtc` the U-Boot
 build just produced has to parse the extracted blob and find the node.
 
+The framebuffer node also moved out of `/chosen`, where the sirius DTS keeps it,
+to the root of the tree. `dm_scan_fdt()` walks the root's children and recurses
+only into nodes bound as simple-bus (`dm_scan_fdt_node()` ->
+`simple_bus_post_bind()`), and `/chosen` has no driver -- a framebuffer nested
+under it is never bound, `vidconsole` never appears, and on a handset without a
+UART that is a board that runs but cannot say anything.
+
 | Image | How it is built | Purpose |
 | --- | --- | --- |
 | `boot.img` | `gzip(nodtb + board DTB)` + patched vendor DTB table | **flash this one** |
