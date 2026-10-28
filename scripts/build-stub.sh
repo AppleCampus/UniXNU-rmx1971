@@ -13,13 +13,14 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 CROSS=${CROSS_COMPILE:-aarch64-linux-gnu-}
 mkdir -p "$OUT"
 
-# -Ttext=0: the stub is position independent and never references a symbol by
-# absolute address, so the link address only decides where the bytes start in
-# the ELF. objcopy then yields a bare blob of a few hundred bytes.
-"${CROSS}gcc" -nostdlib -nostartfiles -ffreestanding -Wl,--build-id=none \
-	-Wl,-Ttext=0 -o "$OUT/paint-fb.elf" "$ROOT/stub/paint-fb.S"
-"${CROSS}objcopy" -O binary "$OUT/paint-fb.elf" "$OUT/paint-fb.bin"
-"${CROSS}objdump" -d "$OUT/paint-fb.elf" > "$OUT/paint-fb.dis"
+# Assemble straight to an object and copy .text out of it: no linker, so no
+# program headers, no load addresses, and no "PHDR segment not covered by LOAD
+# segment" when the image wants to live at address 0. Nothing in stub/paint-fb.S
+# needs relocating (all branches are intra-section, every constant is an
+# immediate), so the section *is* the payload.
+"${CROSS}as" -o "$OUT/paint-fb.o" "$ROOT/stub/paint-fb.S"
+"${CROSS}objcopy" -O binary -j .text "$OUT/paint-fb.o" "$OUT/paint-fb.bin"
+"${CROSS}objdump" -d "$OUT/paint-fb.o" > "$OUT/paint-fb.dis"
 
 # Same header contract as the U-Boot payload: text_offset 0, code at +0x800,
 # total size padded to STUB_SIZE so the ABL sees the shape it already boots.
