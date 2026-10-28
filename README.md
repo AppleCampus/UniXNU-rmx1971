@@ -23,9 +23,10 @@ flash the previous `boot.img` back.
 | --- | --- |
 | U-Boot defconfig, env, DTS for RMX1971 | written, builds in CI |
 | ABL accepting the image and jumping into it | **confirmed on hardware** — `boot-stub.img` paints the screen green with a red square and resets |
-| First light (U-Boot banner on the ABL splash) | **not yet confirmed on hardware** — U-Boot itself dies before `bootcmd`; the devicetree it was given is the current suspect, see below |
-| Storage (UFS at `0x1d84000`) | node enabled, untested |
-| Input, USB, panel init | not attempted — the ABL already leaves a lit panel |
+| First light (U-Boot banner on the ABL splash) | **confirmed on hardware** — `U-Boot 2026.07`, `Model: Realme 5 Pro (RMX1971)`, and the `=>` prompt |
+| Storage (UFS at `0x1d84000`) | probes, but the sdm670 clock table is missing one gate; fixed in `patches/uboot/`, not yet confirmed on hardware |
+| Input, USB, panel init | not attempted — the ABL already leaves a lit panel, and nothing can be typed at the console |
+| `UniXNU.efi` | not attempted |
 
 The console is the framebuffer the ABL hands over at `0x9c000000` (1080x2340,
 stride 1080x4, a8r8g8b8). Retail units have no UART, so this is the only output
@@ -194,6 +195,48 @@ UART that is a board that runs but cannot say anything.
 The probe environment is compiled in (`CONFIG_ENV_DEFAULT_ENV_TEXT_FILE`), which
 is why it needs a second build directory rather than an env change at run time.
 
+### The missing UFS clock gate
+
+With the devicetree in place U-Boot boots, prints its banner and reaches the
+prompt. What it cannot do is read the disk:
+
+```
+qcom-ufshcd ufshc@1d84000: uclass_get_device_by_ofnode failed: -19
+qcom-ufshcd ufshc@1d84000: error finding src node
+gcc@0x100000: unknown clock ID 137!
+qcom-ufshcd ufshc@1d84000: Controller enable notify PRE_CHANGE failed: -2
+qcom-ufshcd ufshc@1d84000: Host controller enable failed
+qcom-ufshcd ufshc@1d84000: ufshcd_probe() failed, ret:-2
+```
+
+Three different things are on screen there. `uclass_get_device_by_ofnode failed`
+and `error finding src node` come from `of_icc_get()` in
+`drivers/interconnect/interconnect-uclass.c`: the UFS node carries
+`interconnects`, no interconnect provider is bound, and `ufs_qcom_probe()` only
+ignores the error. `Cannot persist EFI variables without system partition` and
+the missing RNG are downstream of having no disk at all. The cause is line three.
+
+`-2` is `-ENOENT`, and it comes from `qcom_gate_clk_en()`, which logs
+`unknown clock ID %lu` when `priv->data->clks[id].reg == 0`. The table is a
+sparse designated-initialiser array, so a clock that is missing is
+indistinguishable from a clock whose enable register sits at zero, and `137` is
+
+```c
+#define GCC_UFS_PHY_RX_SYMBOL_1_CLK	137
+```
+
+-- the clock `sdm710.dtsi` asks for as `rx_lane1_sync_clk`. `sdm670_clks[]` in
+`drivers/clk/qcom/clock-sdm845.c` has `RX_SYMBOL_0` (0x77018) and jumps straight
+to `TX_SYMBOL_0`; the `sdm845_clks[]` table right below it has both lanes, the
+second at 0x770a8, and every other `UFS_PHY` gate in the sdm670 table uses the
+same offsets as its sdm845 counterpart. `clk_get_bulk()` enables the clocks in
+order, hits 137, and `ufs_qcom_enable_clks()` hands `-ENOENT` back to
+`hce_enable_notify(PRE_CHANGE)`, so the controller is never enabled.
+
+`patches/uboot/0001-clk-sdm670-add-ufs-phy-rx-symbol-1.patch` adds the entry.
+`scripts/overlay.sh` applies it and then greps the result, because a missing gate
+still compiles.
+
 ## Board facts used here
 
 Taken from this handset, not from the reference board:
@@ -220,8 +263,8 @@ contains no serial numbers or calibration data.
 
 ## Next
 
-1. First light on hardware, then `scsi scan` reaching `ufs 0`.
-2. A FAT payload partition and `UniXNU.efi` from a UniXNU checkout.
+1. `scsi scan` reaching `ufs 0`, then `part list scsi 0` for the partition map.
+2. A payload partition and `UniXNU.efi` from a UniXNU checkout.
 3. Board wiring for the UniXNU device repository: DTS for the kernel side, then
    the `UniXNU-sdm710-common` SoC profile.
 
