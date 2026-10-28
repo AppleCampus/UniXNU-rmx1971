@@ -14,32 +14,10 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT_ABS=$(mkdir -p "$OUT" && cd "$OUT" && pwd)
 
 cd "$UB"
-
-# TEXT_OFFSET in the arm64 Image header is CONFIG_TEXT_BASE minus
-# CONFIG_LNX_KRNL_IMG_TEXT_OFFSET_BASE, and the two defaults disagree on a
-# position-independent build: qcom_defconfig sets CONFIG_POSITION_INDEPENDENT and
-# leaves TEXT_BASE at 0, while arch/arm/mach-snapdragon/Kconfig defaults the base
-# to 0x80000000. The header then reads -0x80000000, and a bootloader that
-# computes base + text_offset lands 2 GiB below the base load address: nothing to
-# execute, no reset, no output. The working iOS shim on this handset carries
-# text_offset 0, so that is what we ask for -- after the defconfig, because a
-# kconfig fragment cannot set it (merge_config splices the comment into the
-# assignment, kconfig then drops the line).
-set_text_offset_base() {
-	bash ./scripts/config --file "$1/.config" --set-val \
-		LNX_KRNL_IMG_TEXT_OFFSET_BASE 0
-	make -s O="$1" olddefconfig
-	grep -q '^CONFIG_LNX_KRNL_IMG_TEXT_OFFSET_BASE=0x0$' "$1/.config" || {
-		echo "error: CONFIG_LNX_KRNL_IMG_TEXT_OFFSET_BASE did not stick" >&2
-		exit 1
-	}
-}
-
 echo "== defconfig"
 # kconfig resolves a fragment by basename through `find board -name <target>`,
 # so the path must not be passed here.
 make -s O="$OUT_ABS" qcom_defconfig qcom-phone.config rmx1971.config
-set_text_offset_base "$OUT_ABS"
 
 echo "== build"
 make -s O="$OUT_ABS" -j"$(nproc)" \
@@ -50,30 +28,38 @@ DTB="$OUT_ABS/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb"
 [ -f "$DTB" ] || { echo "error: $DTB missing" >&2; exit 1; }
 [ -f "$OUT_ABS/u-boot-nodtb.bin" ] || { echo "error: u-boot-nodtb.bin missing" >&2; exit 1; }
 
-# The ABL on this handset reads the arm64 Image header in front of the payload
-# and computes a load address from text_offset. U-Boot writes
-# CONFIG_TEXT_BASE - CONFIG_LNX_KRNL_IMG_TEXT_OFFSET_BASE there, which with a
-# position-independent build (TEXT_BASE 0) and the mach-snapdragon default base
-# of 0x80000000 comes out as -0x80000000, i.e. 2 GiB below any RAM. That single
-# field is the difference between the working iOS shim (text_offset 0) and a
-# handset that sits on the splash forever, so fail the build rather than ship it.
-check_header() {
+# The arm64 Image header in front of the payload has to say text_offset 0: this
+# ABL computes a load address from that field, and 0 is what the working iOS
+# payload on this handset carries (text_offset 0, code at +0x800, image_size =
+# file size, flags 0xa). kconfig would produce it from CONFIG_TEXT_BASE minus
+# CONFIG_LNX_KRNL_IMG_TEXT_OFFSET_BASE, but on a position-independent snapdragon
+# build those defaults disagree (0 versus 0x80000000) and the result is
+# -0x80000000 -- a load address 2 GiB below any RAM -- and neither a kconfig
+# fragment nor scripts/config reliably overrides it. The two fields are pure
+# data that nothing in U-Boot reads back, so rewrite them in the produced blob
+# and fail the build if the result is not what the ABL is known to accept.
+fix_image_header() {
 	python3 - "$1" <<'PY'
 import struct, sys
-b = open(sys.argv[1], 'rb').read(64)
-text_off, image_size, flags = struct.unpack_from("<QQQ", b, 8)
-if b[0x38:0x3c] != b"ARMd":
-	sys.exit(f"error: {sys.argv[1]} has no arm64 Image header")
-if text_off != 0:
-	sys.exit(f"error: text_offset {text_off & (2**64 - 1):#x} != 0 "
-	         f"(set CONFIG_LNX_KRNL_IMG_TEXT_OFFSET_BASE=0x0); the ABL would "
-	         f"load the payload below RAM")
-print(f"    image header ok: text_offset 0 image_size {image_size:#x} flags {flags:#x}")
+
+path = sys.argv[1]
+blob = bytearray(open(path, "rb").read())
+if len(blob) < 64 or blob[0x38:0x3c] != b"ARMd":
+	sys.exit(f"error: {path} has no arm64 Image header")
+struct.pack_into("<Q", blob, 0x08, 0)		# text_offset
+struct.pack_into("<Q", blob, 0x10, len(blob))	# image_size
+open(path, "wb").write(blob)
+
+text_off, image_size, flags = struct.unpack_from("<QQQ", blob, 8)
+if text_off != 0 or image_size != len(blob):
+	sys.exit(f"error: {path}: text_offset {text_off:#x} image_size {image_size:#x}")
+print(f"    image header: text_offset 0 image_size {image_size:#x} "
+      f"flags {flags:#x} ({len(blob)} bytes)")
 PY
 }
-check_header "$OUT_ABS/u-boot-nodtb.bin"
 
 echo "== pack"
+fix_image_header "$OUT_ABS/u-boot-nodtb.bin"
 gzip -9 -n -c "$OUT_ABS/u-boot-nodtb.bin" > "$OUT_ABS/u-boot-nodtb.bin.gz"
 
 # The vendor's own DTB table, with two nodes added to *every* entry: a
@@ -112,13 +98,13 @@ echo "== build probe ($PROBE_OUT)"
 make -s O="$PROBE_OUT" qcom_defconfig qcom-phone.config rmx1971.config
 bash ./scripts/config --file "$PROBE_OUT/.config" --set-str ENV_DEFAULT_ENV_TEXT_FILE \
      board/realme/rmx1971/rmx1971-probe.env
-set_text_offset_base "$PROBE_OUT"
+make -s O="$PROBE_OUT" olddefconfig
 make -s O="$PROBE_OUT" -j"$(nproc)" \
      DEVICE_TREE=qcom/sdm710-realme-rmx1971 \
      CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
 grep -q "rmx1971-probe.env" "$PROBE_OUT/include/generated/autoconf.h" \
     || { echo "error: probe env did not take effect" >&2; exit 1; }
-check_header "$PROBE_OUT/u-boot-nodtb.bin"
+fix_image_header "$PROBE_OUT/u-boot-nodtb.bin"
 gzip -9 -n -c "$PROBE_OUT/u-boot-nodtb.bin" > "$PROBE_OUT/u-boot-nodtb.bin.gz"
 python3 "$ROOT/scripts/pack-boot.py" "$PROBE_OUT/u-boot-nodtb.bin.gz" \
         --dtb-table "$OUT_ABS/stock-fb.bin" -o "$OUT_ABS/boot-probe.img"
