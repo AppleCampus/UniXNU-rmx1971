@@ -38,7 +38,7 @@ jobs:
             out-stub/boot-stub.img out-stub/paint-fb.bin \
             out/stock-fb.bin \
             out/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb \
-            out/u-boot-nodtb.bin > out/SHA256SUMS
+            out/u-boot+dtb.bin > out/SHA256SUMS
           cat out/SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           grep -E "^(CONFIG_EFI_LOADER|CONFIG_VIDEO_SIMPLE|CONFIG_SYS_CONSOLE_IS_IN_ENV|CONFIG_UFS_QCOM|CONFIG_DEFAULT_DEVICE_TREE)=" \
@@ -50,7 +50,7 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo '### arm64 Image header' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          python3 scripts/report-header.py out/u-boot-nodtb.bin out-stub/paint-fb.bin >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/report-header.py out/u-boot+dtb.bin out-stub/paint-fb.bin >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4

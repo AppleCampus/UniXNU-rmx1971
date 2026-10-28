@@ -22,7 +22,8 @@ flash the previous `boot.img` back.
 | Piece | State |
 | --- | --- |
 | U-Boot defconfig, env, DTS for RMX1971 | written, builds in CI |
-| First light (U-Boot banner on the ABL splash) | **not yet confirmed on hardware** — four images have stopped on the splash without resetting; two causes found and fixed since (patched DTB table entries, Image header `text_offset`), see below |
+| ABL accepting the image and jumping into it | **confirmed on hardware** — `boot-stub.img` paints the screen green with a red square and resets |
+| First light (U-Boot banner on the ABL splash) | **not yet confirmed on hardware** — U-Boot itself dies before `bootcmd`; the devicetree it was given is the current suspect, see below |
 | Storage (UFS at `0x1d84000`) | node enabled, untested |
 | Input, USB, panel init | not attempted — the ABL already leaves a lit panel |
 
@@ -46,14 +47,17 @@ The recipe follows sirius's, which is the only known-good one for this SoC:
 ```sh
 make O=out qcom_defconfig qcom-phone.config board/realme/rmx1971/rmx1971.config
 make O=out DEVICE_TREE=qcom/sdm710-realme-rmx1971
-gzip -9 -n -c out/u-boot-nodtb.bin > u-boot-nodtb.bin.gz
+cat out/u-boot-nodtb.bin out/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb > u-boot+dtb.bin
+gzip -9 -n -c u-boot+dtb.bin > payload.gz
 scripts/patch-stock-dtb.py firmware/stock-appended-dtbs.bin out/stock-fb.bin
-scripts/pack-boot.py out/u-boot-nodtb.bin.gz --dtb-table out/stock-fb.bin -o out/boot.img
+scripts/pack-boot.py payload.gz --dtb-table out/stock-fb.bin -o out/boot.img
 ```
 
 `u-boot.bin` as the kernel field returns `OKAY` to `fastboot boot` and does not
-start; a gzip stream is what the ABL expects to decompress, so `u-boot-nodtb.bin`
-goes in gzipped, followed by the DTB table.
+start; a gzip stream is what the ABL expects to decompress. Two things ride
+behind it: the board DTB, appended to the binary so U-Boot finds its own tree at
+`_end` (see below), and the vendor DTB table, appended to the compressed stream
+because the ABL wants a table it can match by `qcom,msm-id`.
 
 ## Test
 
@@ -70,34 +74,39 @@ previous image back restores everything.
 
 ### What the ABL actually wants
 
-Two attempts on hardware narrowed it down, and neither matched the sibling port:
+Four attempts on hardware narrowed it down, and none of them matched the sibling
+port:
 
 | Tried | Result |
 | --- | --- |
 | `gzip(nodtb)` + board DTB + the vendor's six DTBs | stops on the realme logo |
 | `gzip(nodtb)` + board DTB alone | drops straight to fastboot, exactly like an empty `boot` partition |
 | `gzip(nodtb)` + the vendor's six DTBs, entry 0 patched | stops on the realme logo, and the probe build (`sleep 15; reset`) does **not** reboot either |
+| the same with all six entries patched, `text_offset` fixed to 0 | unchanged: logo, no output, no reset |
+| `gzip(paint-fb)` + the vendor table — no U-Boot, 300 bytes of assembly | **screen turns green, red square top-left, handset resets** |
+
+That last row is the one worth keeping. `stub/paint-fb.S` shares nothing with
+U-Boot -- it writes `0x9c000000` directly and resets through PSCI -- and it runs.
+So the ABL accepts this container, jumps into it, and the splash address the two
+payloads use is correct. Everything the images above got wrong is inside U-Boot,
+and the useful question stops being "what does the ABL want" and becomes "why
+does U-Boot die before `bootcmd`".
 
 The working iOS image on this same handset is packed as `gzip(payload)` followed
-by the vendor's six DTBs, untouched. That is the layout ABL is happy with, so
-`scripts/patch-stock-dtb.py` stops competing with it and edits the vendor DTBs
-in place instead -- everything the vendor put there (PMIC, clocks, GENI UART,
-UFS, `oppo,prjversion`, the ABL identity fields) is kept, plus two nodes:
+by the vendor's six DTBs, untouched, which is why the table stays. What changes is
+who that table is for: it is there for the ABL to match against, not for U-Boot
+to read. `scripts/patch-stock-dtb.py` still adds a framebuffer node and a
+`/memory` window to every entry, so a bootloader that *does* use one of them gets
+something usable:
 
 - `framebuffer@9c000000` (`simple-framebuffer`, 1080x2340, stride 4320, `a8r8g8b8`)
-  at the splash carve-out the ABL leaves behind, so U-Boot has an output device;
+  at the splash carve-out the ABL leaves behind;
 - a `/memory` window -- every vendor entry has `reg = <0 0 0 0>`, because Android
   reads RAM from SMEM, and `qcom_parse_memory()` panics on a zero size.
 
-**All six entries get both nodes**, not just one. The ABL picks an entry by
-matching `qcom,msm-id` against the SoC, which is entry 3 on this handset and not
-something the image can dictate; patching a single entry leaves U-Boot to panic
-`"No valid memory ranges found!"` whenever a different one is selected, and that
-panic runs before the console exists -- a handset that sits on the splash and
-never resets looks identical whether the CPU never started or died in
-`board_init_f`. Patching every entry removes the guess.
-
-`gzip(nodtb)` alone, with no table, is the one shape the ABL rejects outright.
+**All six entries get both nodes**, not just one: the ABL picks by `qcom,msm-id`
+and the image cannot dictate the choice. `gzip(nodtb)` alone, with no table, is
+the one shape the ABL rejects outright.
 
 ### The arm64 Image header
 
@@ -128,12 +137,52 @@ payload size. `stub/paint-fb.S` carries that header by hand for the same reason,
 which is what makes `boot-stub.img` a meaningful experiment rather than a second
 guess.
 
+### The devicetree U-Boot boots with
+
+`fdtdec_setup()` asks `fdt_find_separate()` for the blob, which on a
+`CONFIG_OF_SEPARATE` build is `_end` -- the byte right after `u-boot-nodtb.bin`.
+Only then does the board get a say: `board_fdt_blob_setup()` in
+`arch/arm/mach-snapdragon/board.c` compares that internal blob with the one the
+ABL left in `x0`, and if neither is a valid FDT it panics:
+
+```c
+if (!internal_valid && !external_valid)
+	panic("Internal FDT is invalid and no external FDT was provided!");
+```
+
+The payload used to be `gzip(u-boot-nodtb.bin)`, so `_end` pointed at whatever
+followed the image in RAM: there was no internal blob at all, and the only route
+left was to trust the ABL. Nothing had ever shown that the ABL hands this image a
+valid FDT -- it hands *something* over, but the image cannot tell what. And
+`CONFIG_PANIC_HANG=y` (from `qcom-phone.config`) turns that panic into a wait
+forever, before the console exists, which is why the handset sits on the splash
+without a single character of output.
+
+Two halves to the fix:
+
+- the payload is `u-boot-nodtb.bin` followed by the board DTB at exactly its own
+  length, so `_end` *is* a valid FDT and U-Boot stops needing the ABL's copy. Any
+  padding would move the blob away from `_end`, hence no alignment at all.
+- the board DTS defines the `/memory` node U-Boot looks for. `sdm670.dtsi` ships
+  `memory@80000000` with `reg = <0 0x80000000 0 0>` and the comment "we expect the
+  bootloader to fill in the size", but `qcom_parse_memory()` reads
+  `fdt_path_offset(fdt, "/memory")` -- literal name, no unit address -- so that
+  placeholder is invisible to it, and its zero size would fail the next check
+  anyway. `dts/sdm710-realme-rmx1971.dts` deletes it and adds
+  `memory { reg = <0 0x80000000 0 0x7e2c0000>; }`.
+
+`scripts/build-in-tree.sh` refuses to pack unless all of that holds: the FDT magic
+must be at `len(u-boot-nodtb.bin)` inside the payload, `/memory` must be 16 bytes
+(two 64-bit cells, the way `qcom_parse_memory()` reads it) with a non-zero size,
+and -- as a second opinion that shares no code with ours -- the `dtc` the U-Boot
+build just produced has to parse the extracted blob and find the node.
+
 | Image | How it is built | Purpose |
 | --- | --- | --- |
-| `boot.img` | `gzip(nodtb)` + patched vendor DTB table | **flash this one** |
+| `boot.img` | `gzip(nodtb + board DTB)` + patched vendor DTB table | **flash this one** |
 | `boot-probe.img` | same, env is `sleep 15; reset` | proves U-Boot reached `bootcmd` even with no display: the handset reboots by itself ~17 s after the splash |
-| `boot-boarddtb.img` | `gzip(nodtb)` + board DTB + vendor table | the first attempt, kept because it reproduces the logo hang |
-| `boot-stub.img` | `gzip(paint-fb)` + patched vendor DTB table | no U-Boot at all: ~300 bytes of assembly that flood `0x9c000000` with green, stamp a red square, wait ~10 s, then PSCI-reset. Green means the ABL jumped and the container shape is right; the logo means it never reached our code |
+| `boot-boarddtb.img` | board DTB *after* the gzip stream, not inside it | reproduces the logo hang: the ABL then picks that entry as the external FDT and it has no `/memory` |
+| `boot-stub.img` | `gzip(paint-fb)` + patched vendor DTB table | no U-Boot at all: ~300 bytes of assembly that flood `0x9c000000` with green, stamp a red square, wait ~10 s, then PSCI-reset. Green means the ABL jumped and the container shape is right; done, that one passed |
 
 The probe environment is compiled in (`CONFIG_ENV_DEFAULT_ENV_TEXT_FILE`), which
 is why it needs a second build directory rather than an env change at run time.

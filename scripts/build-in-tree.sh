@@ -12,21 +12,13 @@ UB=${1:-uboot}
 OUT=${2:-out}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT_ABS=$(mkdir -p "$OUT" && cd "$OUT" && pwd)
+CROSS=${CROSS_COMPILE:-aarch64-linux-gnu-}
+DEVICE_TREE=${DEVICE_TREE:-qcom/sdm710-realme-rmx1971}
+DTB_REL="dts/${DTB_SUBDIR:-upstream/src/arm64/qcom}/sdm710-realme-rmx1971.dtb"
 
-cd "$UB"
-echo "== defconfig"
-# kconfig resolves a fragment by basename through `find board -name <target>`,
-# so the path must not be passed here.
-make -s O="$OUT_ABS" qcom_defconfig qcom-phone.config rmx1971.config
-
-echo "== build"
-make -s O="$OUT_ABS" -j"$(nproc)" \
-     DEVICE_TREE=qcom/sdm710-realme-rmx1971 \
-     CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
-
-DTB="$OUT_ABS/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb"
-[ -f "$DTB" ] || { echo "error: $DTB missing" >&2; exit 1; }
-[ -f "$OUT_ABS/u-boot-nodtb.bin" ] || { echo "error: u-boot-nodtb.bin missing" >&2; exit 1; }
+build() { # $1 = build dir
+	make -s O="$1" -j"$(nproc)" DEVICE_TREE="$DEVICE_TREE" CROSS_COMPILE="$CROSS"
+}
 
 # The arm64 Image header in front of the payload has to say text_offset 0: this
 # ABL computes a load address from that field, and 0 is what the working iOS
@@ -58,35 +50,133 @@ print(f"    image header: text_offset 0 image_size {image_size:#x} "
 PY
 }
 
-echo "== pack"
-fix_image_header "$OUT_ABS/u-boot-nodtb.bin"
-gzip -9 -n -c "$OUT_ABS/u-boot-nodtb.bin" > "$OUT_ABS/u-boot-nodtb.bin.gz"
+# Build the payload: u-boot-nodtb.bin followed by our board DTB, gzipped.
+#
+# With CONFIG_OF_SEPARATE, fdtdec_setup() takes the devicetree from _end --
+# fdt_find_separate() returns exactly that -- and only then lets the board
+# override it. Appending the DTB is what makes _end a valid blob, so U-Boot
+# reads its own tree and stops depending on what the ABL passes in x0. That
+# mattered: with a nodtb-only payload the internal blob is absent, so
+# board_fdt_blob_setup() needs the external FDT to be valid, and when it is not
+# it panics with "Internal FDT is invalid and no external FDT was provided!"
+# before the console exists -- with CONFIG_PANIC_HANG that is a handset sitting
+# on the ABL splash, no output, no reset, indistinguishable from a CPU that
+# never started.
+#
+# _end is the byte after the last section, i.e. u-boot-nodtb.bin's length, so
+# the DTB goes at that exact offset: no padding, no page alignment.
+make_payload() { # $1 = build dir, $2 = output .gz
+	local dir=$1 out=$2
+	local nodtb="$dir/u-boot-nodtb.bin" dtb="$dir/$DTB_REL"
+	local bin="$dir/u-boot+dtb.bin"
+
+	[ -f "$nodtb" ] || { echo "error: $nodtb missing" >&2; exit 1; }
+	[ -f "$dtb" ]   || { echo "error: $dtb missing" >&2; exit 1; }
+
+	cat "$nodtb" "$dtb" > "$bin"
+
+	python3 - "$bin" "$nodtb" "$ROOT" <<'PY'
+import struct, sys
+
+binpath, nodtb, root = sys.argv[1], sys.argv[2], sys.argv[3]
+off = len(open(nodtb, "rb").read())
+blob = open(binpath, "rb").read()
+
+if blob[off:off + 4] != b"\xd0\x0d\xfe\xed":
+	sys.exit(f"error: no FDT at _end ({off:#x}) in {binpath}")
+tot = struct.unpack_from(">I", blob, off + 4)[0]
+if tot < 0x100 or off + tot > len(blob):
+	sys.exit(f"error: DTB at {off:#x} claims {tot} bytes, "
+	         f"{len(blob) - off} present")
+print(f"    dtb at _end: {off:#x}, {tot} bytes, {len(blob)} total")
+
+# Walk it with the same parser the vendor-DTB patcher uses: prove the node
+# qcom_parse_memory() looks up is there, and that it carries a real window.
+sys.path.insert(0, root + "/scripts")
+import importlib.util
+spec = importlib.util.spec_from_file_location("p", root + "/scripts/patch-stock-dtb.py")
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+dtb = blob[off:off + tot]
+rt = m.find_root(m.parse(dtb)[0])
+mem = rt.child("memory")
+if mem is None:
+	sys.exit(f"error: internal DT has no literal /memory node "
+	         f"(children: {[c.name for c in rt.children][:12]})")
+reg = mem.props.get("reg", b"")
+if len(reg) != 16:
+	sys.exit(f"error: /memory reg is {len(reg)} bytes, qcom_parse_memory() "
+	         f"reads it as two 64-bit cells")
+base, size = struct.unpack(">QQ", reg)
+if not size:
+	sys.exit("error: /memory has a zero size; qcom_parse_memory() would "
+	         "return -ENODATA")
+fb = [c for c in rt.children if c.name.startswith("framebuffer@")]
+model = rt.props.get("model", b"").split(b"\0")[0].decode()
+print(f"    internal DT ok: /memory {base:#x}+{size:#x}, "
+      f"{len(fb)} framebuffer node(s), model {model!r}")
+PY
+
+	# Optional second opinion from the dtc the build just compiled: it is the
+	# real libfdt-based parser, and it rejects layouts our own parser might
+	# accept.
+	local dtc=""
+	for c in "$dir/scripts/dtc/dtc" "$(command -v dtc 2>/dev/null || true)"; do
+		[ -n "$c" ] && [ -x "$c" ] && dtc=$c && break
+	done
+	if [ -n "$dtc" ]; then
+		python3 -c 'import sys;d=open(sys.argv[1],"rb").read();o=len(open(sys.argv[2],"rb").read());open(sys.argv[3],"wb").write(d[o:])' \
+			"$bin" "$nodtb" "$dir/u-boot.dtb.extracted"
+		"$dtc" -I dtb -O dts -o "$dir/u-boot.dtb.extracted.dts" \
+			"$dir/u-boot.dtb.extracted"
+		grep -qE "^[[:space:]]*memory \{" "$dir/u-boot.dtb.extracted.dts" || {
+			echo "error: dtc output has no /memory node" >&2; exit 1; }
+		echo "    dtc parsed the internal DT ($(basename "$dtc"))"
+	fi
+
+	fix_image_header "$bin"
+	gzip -9 -n -c "$bin" > "$out"
+}
+
+pack() { # $1 = gzipped payload, $2 = boot image
+	python3 "$ROOT/scripts/pack-boot.py" "$1" --dtb-table "$OUT_ABS/stock-fb.bin" -o "$2"
+}
+
+cd "$UB"
+echo "== defconfig"
+# kconfig resolves a fragment by basename through `find board -name <target>`,
+# so the path must not be passed here.
+make -s O="$OUT_ABS" qcom_defconfig qcom-phone.config rmx1971.config
+
+echo "== build"
+build "$OUT_ABS"
 
 # The vendor's own DTB table, with two nodes added to *every* entry: a
 # simple-framebuffer at the ABL splash address and a /memory window (the vendor
-# nodes all have reg = <0 0 0 0> because Android learns RAM from SMEM; U-Boot
-# panics on an empty one, before the console exists, which looks exactly like a
-# dead handset on the splash).
+# nodes all have reg = <0 0 0 0> because Android learns RAM from SMEM).
 #
 # This is the layout the working iOS shim on this handset uses -- gzip(payload)
 # followed by the six stock DTBs, nothing else -- and it is the only one this
 # ABL has ever accepted: a hand-written board DTB as the sole table entry falls
 # straight through to fastboot, and board DTB + stock table stops on the logo.
+# The table is for the ABL, not for U-Boot: U-Boot now carries its own DTB
+# inside the gzip.
 python3 "$ROOT/scripts/patch-stock-dtb.py" "$ROOT/firmware/stock-appended-dtbs.bin" \
         "$OUT_ABS/stock-fb.bin"
-python3 "$ROOT/scripts/pack-boot.py" "$OUT_ABS/u-boot-nodtb.bin.gz" \
-        --dtb-table "$OUT_ABS/stock-fb.bin" -o "$OUT_ABS/boot.img"
 
-# Kept for the record: the board DTB ahead of the stock table. Stops on the
-# realme logo (the board DTB wins the match and U-Boot has no /memory there).
-python3 - "$OUT_ABS/u-boot-nodtb.bin.gz" "$DTB" "$OUT_ABS/uboot-payload" <<'PY'
-import sys
-open(sys.argv[3], 'wb').write(open(sys.argv[1], 'rb').read() + open(sys.argv[2], 'rb').read())
-PY
-python3 "$ROOT/scripts/pack-boot.py" "$OUT_ABS/uboot-payload" -o "$OUT_ABS/boot-boarddtb.img"
+echo "== pack"
+make_payload "$OUT_ABS" "$OUT_ABS/payload.gz"
+pack "$OUT_ABS/payload.gz" "$OUT_ABS/boot.img"
+
+# Kept for the record: the older shape, board DTB appended to the *gzip stream*
+# instead of to the binary. Stops on the realme logo -- the ABL picks that entry
+# as the external FDT, it has no /memory, and the internal blob is absent.
+cat "$OUT_ABS/payload.gz" "$OUT_ABS/dts/${DTB_SUBDIR:-upstream/src/arm64/qcom}/sdm710-realme-rmx1971.dtb" \
+    > "$OUT_ABS/payload-external.gz"
+python3 "$ROOT/scripts/pack-boot.py" "$OUT_ABS/payload-external.gz" -o "$OUT_ABS/boot-boarddtb.img"
 
 ls -l "$OUT_ABS/boot.img" "$OUT_ABS/boot-boarddtb.img" "$OUT_ABS/stock-fb.bin" \
-      "$DTB" "$OUT_ABS/u-boot-nodtb.bin"
+      "$OUT_ABS/u-boot+dtb.bin"
 
 # ---------------------------------------------------------------------------
 # Second pass: the same payload, but with a default environment that proves the
@@ -99,13 +189,9 @@ make -s O="$PROBE_OUT" qcom_defconfig qcom-phone.config rmx1971.config
 bash ./scripts/config --file "$PROBE_OUT/.config" --set-str ENV_DEFAULT_ENV_TEXT_FILE \
      board/realme/rmx1971/rmx1971-probe.env
 make -s O="$PROBE_OUT" olddefconfig
-make -s O="$PROBE_OUT" -j"$(nproc)" \
-     DEVICE_TREE=qcom/sdm710-realme-rmx1971 \
-     CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
+build "$PROBE_OUT"
 grep -q "rmx1971-probe.env" "$PROBE_OUT/include/generated/autoconf.h" \
     || { echo "error: probe env did not take effect" >&2; exit 1; }
-fix_image_header "$PROBE_OUT/u-boot-nodtb.bin"
-gzip -9 -n -c "$PROBE_OUT/u-boot-nodtb.bin" > "$PROBE_OUT/u-boot-nodtb.bin.gz"
-python3 "$ROOT/scripts/pack-boot.py" "$PROBE_OUT/u-boot-nodtb.bin.gz" \
-        --dtb-table "$OUT_ABS/stock-fb.bin" -o "$OUT_ABS/boot-probe.img"
+make_payload "$PROBE_OUT" "$PROBE_OUT/payload.gz"
+pack "$PROBE_OUT/payload.gz" "$OUT_ABS/boot-probe.img"
 ls -l "$OUT_ABS/boot-probe.img"

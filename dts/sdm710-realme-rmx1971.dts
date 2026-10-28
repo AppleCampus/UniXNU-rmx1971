@@ -22,6 +22,17 @@
 #include "pm660.dtsi"
 #include "pm660l.dtsi"
 
+/*
+ * sdm670.dtsi ships "memory@80000000" with reg = <0 0x80000000 0 0> and the
+ * comment "we expect the bootloader to fill in the size": the node is a
+ * placeholder for the ABL, which patches the DT it hands to the kernel. U-Boot
+ * never sees that patched copy unless the ABL chooses to pass it, and even then
+ * the path is wrong -- qcom_parse_memory() looks up the literal "/memory", not
+ * "/memory@80000000", and gives up with -ENODATA on a zero size as well. The
+ * replacement is a few lines below.
+ */
+/delete-node/ &{/memory@80000000};
+
 /delete-node/ &xbl_mem;
 /delete-node/ &wlan_msa_mem;
 /delete-node/ &cdsp_mem;
@@ -37,6 +48,22 @@
 	qcom,msm-id = <0x168 0 0x189 0>;
 	qcom,board-id = <0 0>;
 	chassis-type = "handset";
+
+	/*
+	 * The node must be named exactly "memory": qcom_parse_memory() reads it
+	 * with fdt_path_offset(fdt, "/memory"), so "memory@80000000" would not
+	 * match. Reg is read as two 64-bit cells, which is why / has
+	 * #address-cells = #size-cells = 2 here.
+	 *
+	 * The window is the low 1.97 GiB, the same one ios-sweet hands to XNU:
+	 * everything above 0x1_00000000 stays untouched, and the ABL splash
+	 * buffer at 0x9c000000 sits inside it, carved out as no-map below so
+	 * nothing that reads reserved-memory will hand it out.
+	 */
+	memory {
+		device_type = "memory";
+		reg = <0 0x80000000 0 0x7e2c0000>;
+	};
 
 	clocks {
 		int_cdc_bclk: int-cdc-bclk {
