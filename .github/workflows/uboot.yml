@@ -31,7 +31,7 @@ jobs:
 
       - name: Report
         run: |
-          sha256sum out/boot.img out/boot-nodtbs.img \
+          sha256sum out/boot.img out/boot-nodtbs.img out/boot-probe.img \
             out/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb \
             out/u-boot-nodtb.bin > out/SHA256SUMS
           cat out/SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
@@ -46,6 +46,7 @@ jobs:
           path: |
             out/boot.img
             out/boot-nodtbs.img
+            out/boot-probe.img
             out/SHA256SUMS
             out/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb
             out/.config

@@ -66,18 +66,18 @@ Expect the U-Boot banner over the ABL splash, then `scsi scan`, then a failed
 get that far; the `boot` partition is the only thing touched, so flashing the
 previous image back restores everything.
 
-Two images are built, because it is not documented what this ABL does with the
-appended DTB table:
+Three images are built. The first one was tried on hardware and left the screen
+on the realme logo: ABL picked a *stock* device tree out of the appended table,
+and a stock DTB has no `simple-framebuffer`, so U-Boot ran with no console.
 
-| Image | Kernel field | cmdline | When |
-| --- | --- | --- | --- |
-| `boot.img` | `gzip(nodtb)` + board dtb + stock DTB table | `androidboot.dtb_idx=3` | default; mirrors how the iOS shim on this board is packed |
-| `boot-nodtbs.img` | `gzip(nodtb)` + board dtb | no `dtb_idx` | if the first one gives a black screen |
+| Image | Kernel field | Purpose |
+| --- | --- | --- |
+| `boot-nodtbs.img` | `gzip(nodtb)` + board dtb, nothing else | **use this one**: the only DTB ABL can find is ours, which is what the Mi 8 SE port does |
+| `boot.img` | `gzip(nodtb)` + board dtb + the stock DTB table | kept for reference; ABL selected a stock DTB from it |
+| `boot-probe.img` | same as `boot-nodtbs.img`, different env | proves the CPU runs U-Boot at all: `bootcmd` sleeps 15 s then resets, so the handset reboots by itself. Sitting on the logo forever means U-Boot never reached `bootcmd` |
 
-If both stay black, the next variable is the console: try `bootdelay=10
-bootmenu` in `board/realme/rmx1971/rmx1971.env` and watch for any pixel change,
-then disable `CONFIG_VIDEO_SIMPLE` and see whether U-Boot reaches the prompt
-blind (it hangs instead of rebooting, which is itself a signal).
+The probe env (`board/realme/rmx1971/rmx1971-probe.env`) is compiled in, which
+is why it needs a second build directory rather than an env change at run time.
 
 ## Board facts used here
 

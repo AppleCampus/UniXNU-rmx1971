@@ -40,3 +40,25 @@ python3 "$ROOT/scripts/pack-boot.py" "$OUT_ABS/uboot-payload" --no-stock-dtbs \
         -o "$OUT_ABS/boot-nodtbs.img"
 
 ls -l "$OUT_ABS/boot.img" "$OUT_ABS/boot-nodtbs.img" "$DTB" "$OUT_ABS/u-boot-nodtb.bin"
+
+# ---------------------------------------------------------------------------
+# Second pass: the same payload, but with a default environment that proves the
+# CPU is executing U-Boot without needing the display. The environment is
+# compiled into the binary (CONFIG_ENV_DEFAULT_ENV_TEXT_FILE), so this needs its
+# own build directory rather than an env change at run time.
+PROBE_OUT="$(dirname "$OUT_ABS")/out-probe"
+echo "== build probe ($PROBE_OUT)"
+make -s O="$PROBE_OUT" qcom_defconfig qcom-phone.config rmx1971.config
+bash "$UB/scripts/config" --file "$PROBE_OUT/.config" --set-str ENV_DEFAULT_ENV_TEXT_FILE \
+     board/realme/rmx1971/rmx1971-probe.env
+make -s O="$PROBE_OUT" olddefconfig
+make -s O="$PROBE_OUT" -j"$(nproc)" \
+     DEVICE_TREE=qcom/sdm710-realme-rmx1971 \
+     CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
+grep -q "rmx1971-probe.env" "$PROBE_OUT/include/generated/autoconf.h" \
+    || { echo "error: probe env did not take effect" >&2; exit 1; }
+gzip -9 -n -c "$PROBE_OUT/u-boot-nodtb.bin" > "$PROBE_OUT/u-boot-nodtb.bin.gz"
+cat "$PROBE_OUT/u-boot-nodtb.bin.gz" "$DTB" > "$PROBE_OUT/uboot-payload"
+python3 "$ROOT/scripts/pack-boot.py" "$PROBE_OUT/uboot-payload" --no-stock-dtbs \
+        -o "$OUT_ABS/boot-probe.img"
+ls -l "$OUT_ABS/boot-probe.img"
