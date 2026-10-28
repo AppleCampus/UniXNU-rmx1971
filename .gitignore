@@ -1,0 +1,6 @@
+out/
+uboot/
+*.o
+*.dtb
+*.img
+*.gz

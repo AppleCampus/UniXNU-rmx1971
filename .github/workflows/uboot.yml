@@ -1,0 +1,48 @@
+name: U-Boot for rmx1971
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu bison flex libssl-dev \
+            python3 device-tree-compiler
+
+      - name: Fetch U-Boot (SDM710 branch)
+        run: |
+          git clone --depth 1 -b sirius/v2.0 https://github.com/57UU/u-boot uboot
+          git -C uboot log --oneline -1
+
+      - name: Overlay board files
+        run: bash scripts/overlay.sh uboot
+
+      - name: Build and pack
+        run: bash scripts/build-in-tree.sh uboot out
+
+      - name: Report
+        run: |
+          sha256sum out/boot.img out/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb \
+            out/u-boot-nodtb.bin > out/SHA256SUMS
+          cat out/SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "^(CONFIG_EFI_LOADER|CONFIG_VIDEO_SIMPLE|CONFIG_UFS_QCOM|CONFIG_DEFAULT_DEVICE_TREE)=" \
+            out/.config >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rmx1971-uboot
+          path: |
+            out/boot.img
+            out/SHA256SUMS
+            out/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb
+            out/.config
