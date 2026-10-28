@@ -117,11 +117,14 @@ field therefore read `-0x80000000`, and a bootloader that computes
 execute, no reset, no output: the handset sits on the splash.
 
 The working iOS shim on this device is the control: `text_offset = 0`, code at
-`+0x800`, `image_size = 0x2d000`, flags `0xa`. `board/realme/rmx1971/rmx1971.config`
-sets `CONFIG_LNX_KRNL_IMG_TEXT_OFFSET_BASE=0x0` to get the same, and
-`scripts/build-in-tree.sh` refuses to pack an image whose header does not say
-`text_offset 0`. `stub/paint-fb.S` reproduces that header byte for byte, which is
-what makes `boot-stub.img` a meaningful experiment rather than a second guess.
+`+0x800`, `image_size = 0x2d000`, flags `0xa`. `scripts/build-in-tree.sh` asks
+for the same -- it sets `CONFIG_LNX_KRNL_IMG_TEXT_OFFSET_BASE=0x0` on the
+generated `.config` after the defconfig, because a kconfig fragment cannot carry
+that line (`merge_config` splices the explanatory comment into the assignment and
+kconfig then drops it) -- and it refuses to pack an image whose header does not
+say `text_offset 0`. `stub/paint-fb.S` reproduces that header byte for byte,
+which is what makes `boot-stub.img` a meaningful experiment rather than a second
+guess.
 
 | Image | How it is built | Purpose |
 | --- | --- | --- |

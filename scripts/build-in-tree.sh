@@ -14,10 +14,32 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT_ABS=$(mkdir -p "$OUT" && cd "$OUT" && pwd)
 
 cd "$UB"
+
+# TEXT_OFFSET in the arm64 Image header is CONFIG_TEXT_BASE minus
+# CONFIG_LNX_KRNL_IMG_TEXT_OFFSET_BASE, and the two defaults disagree on a
+# position-independent build: qcom_defconfig sets CONFIG_POSITION_INDEPENDENT and
+# leaves TEXT_BASE at 0, while arch/arm/mach-snapdragon/Kconfig defaults the base
+# to 0x80000000. The header then reads -0x80000000, and a bootloader that
+# computes base + text_offset lands 2 GiB below the base load address: nothing to
+# execute, no reset, no output. The working iOS shim on this handset carries
+# text_offset 0, so that is what we ask for -- after the defconfig, because a
+# kconfig fragment cannot set it (merge_config splices the comment into the
+# assignment, kconfig then drops the line).
+set_text_offset_base() {
+	bash ./scripts/config --file "$1/.config" --set-val \
+		LNX_KRNL_IMG_TEXT_OFFSET_BASE 0
+	make -s O="$1" olddefconfig
+	grep -q '^CONFIG_LNX_KRNL_IMG_TEXT_OFFSET_BASE=0x0$' "$1/.config" || {
+		echo "error: CONFIG_LNX_KRNL_IMG_TEXT_OFFSET_BASE did not stick" >&2
+		exit 1
+	}
+}
+
 echo "== defconfig"
 # kconfig resolves a fragment by basename through `find board -name <target>`,
 # so the path must not be passed here.
 make -s O="$OUT_ABS" qcom_defconfig qcom-phone.config rmx1971.config
+set_text_offset_base "$OUT_ABS"
 
 echo "== build"
 make -s O="$OUT_ABS" -j"$(nproc)" \
@@ -90,7 +112,7 @@ echo "== build probe ($PROBE_OUT)"
 make -s O="$PROBE_OUT" qcom_defconfig qcom-phone.config rmx1971.config
 bash ./scripts/config --file "$PROBE_OUT/.config" --set-str ENV_DEFAULT_ENV_TEXT_FILE \
      board/realme/rmx1971/rmx1971-probe.env
-make -s O="$PROBE_OUT" olddefconfig
+set_text_offset_base "$PROBE_OUT"
 make -s O="$PROBE_OUT" -j"$(nproc)" \
      DEVICE_TREE=qcom/sdm710-realme-rmx1971 \
      CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
