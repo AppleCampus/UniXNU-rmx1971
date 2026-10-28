@@ -15,8 +15,9 @@ OUT_ABS=$(mkdir -p "$OUT" && cd "$OUT" && pwd)
 
 cd "$UB"
 echo "== defconfig"
-make -s O="$OUT_ABS" qcom_defconfig qcom-phone.config \
-     board/realme/rmx1971/rmx1971.config
+# kconfig resolves a fragment by basename through `find board -name <target>`,
+# so the path must not be passed here.
+make -s O="$OUT_ABS" qcom_defconfig qcom-phone.config rmx1971.config
 
 echo "== build"
 make -s O="$OUT_ABS" -j"$(nproc)" \
