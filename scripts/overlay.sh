@@ -11,9 +11,10 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
 install -D -m 644 "$ROOT/dts/sdm710-realme-rmx1971.dts" \
 	"$UB/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dts"
-install -D -m 644 "$ROOT/board/realme/rmx1971/rmx1971.config" \
-	"$UB/board/realme/rmx1971/rmx1971.config"
-install -D -m 644 "$ROOT/board/realme/rmx1971/rmx1971.env" \
-	"$UB/board/realme/rmx1971/rmx1971.env"
+# Board files: the kconfig fragment and every environment variant (rmx1971.env
+# for the real image, rmx1971-probe.env for the proof-of-life one).
+for f in "$ROOT"/board/realme/rmx1971/*; do
+	install -D -m 644 "$f" "$UB/board/realme/rmx1971/$(basename "$f")"
+done
 
 echo "overlaid rmx1971 board files into $UB"
