@@ -49,7 +49,7 @@ ls -l "$OUT_ABS/boot.img" "$OUT_ABS/boot-nodtbs.img" "$DTB" "$OUT_ABS/u-boot-nod
 PROBE_OUT="$(dirname "$OUT_ABS")/out-probe"
 echo "== build probe ($PROBE_OUT)"
 make -s O="$PROBE_OUT" qcom_defconfig qcom-phone.config rmx1971.config
-bash "$UB/scripts/config" --file "$PROBE_OUT/.config" --set-str ENV_DEFAULT_ENV_TEXT_FILE \
+bash ./scripts/config --file "$PROBE_OUT/.config" --set-str ENV_DEFAULT_ENV_TEXT_FILE \
      board/realme/rmx1971/rmx1971-probe.env
 make -s O="$PROBE_OUT" olddefconfig
 make -s O="$PROBE_OUT" -j"$(nproc)" \
