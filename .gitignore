@@ -1,5 +1,5 @@
 out/
-uboot/
+/uboot/
 *.o
 *.dtb
 *.img

@@ -1,0 +1,35 @@
+From: rmx1971-unixnu
+Subject: [PATCH] clk: qcom: sdm670: add the missing UFS PHY RX lane 1 gate
+
+The sdm670 table is a sparse designated-initialiser array, so a clock that is
+simply absent behaves like a clock whose enable register is zero:
+qcom_gate_clk_en() logs "unknown clock ID 137!", and clk_enable_bulk() in
+drivers/ufs/ufs-qcom.c returns -ENOENT, which surfaces as
+
+    qcom-ufshcd ufshc@1d84000: Controller enable notify PRE_CHANGE failed: -2
+    qcom-ufshcd ufshc@1d84000: Host controller enable failed
+    qcom-ufshcd ufshc@1d84000: ufshcd_probe() failed, ret:-2
+
+137 is GCC_UFS_PHY_RX_SYMBOL_1_CLK, the clock the SDM710 UFS node names
+"rx_lane1_sync_clk". The sdm845 table in the same file already carries it at
+0x770a8, and every other UFS_PHY gate in the sdm670 table uses the same offset
+as its sdm845 counterpart, so the register is not in doubt.
+
+---
+--- a/drivers/clk/qcom/clock-sdm845.c
++++ b/drivers/clk/qcom/clock-sdm845.c
+@@ -141,6 +141,14 @@
+ 	GATE_CLK(GCC_UFS_PHY_ICE_CORE_CLK,		0x77058, 0x00000001),
+ 	GATE_CLK(GCC_UFS_PHY_PHY_AUX_CLK,		0x7708c, 0x00000001),
+ 	GATE_CLK(GCC_UFS_PHY_RX_SYMBOL_0_CLK,		0x77018, 0x00000001),
++	/*
++	 * The second RX lane was missing here even though the UFS node asks for
++	 * it as "rx_lane1_sync_clk" -- the sdm845 table below has it at the same
++	 * offset, 0x770a8. Without the entry qcom_gate_clk_en() finds reg == 0,
++	 * logs "unknown clock ID 137", and clk_enable_bulk() hands ufshcd
++	 * -ENOENT before the host controller is ever enabled.
++	 */
++	GATE_CLK(GCC_UFS_PHY_RX_SYMBOL_1_CLK,		0x770a8, 0x00000001),
+ 	GATE_CLK(GCC_UFS_PHY_TX_SYMBOL_0_CLK,		0x77014, 0x00000001),
+ 	GATE_CLK(GCC_UFS_PHY_UNIPRO_CORE_CLK,		0x77054, 0x00000001),
+ 	GATE_CLK(GCC_USB30_PRIM_MASTER_CLK,		0x0f00c, 0x00000001),
