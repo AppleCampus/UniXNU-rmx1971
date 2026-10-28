@@ -26,12 +26,16 @@ jobs:
       - name: Overlay board files
         run: bash scripts/overlay.sh uboot
 
+      - name: Build paint stub
+        run: bash scripts/build-stub.sh out-stub
+
       - name: Build and pack
         run: bash scripts/build-in-tree.sh uboot out
 
       - name: Report
         run: |
           sha256sum out/boot.img out/boot-boarddtb.img out/boot-probe.img \
+            out-stub/boot-stub.img out-stub/paint-fb.bin \
             out/stock-fb.bin \
             out/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb \
             out/u-boot-nodtb.bin > out/SHA256SUMS
@@ -40,10 +44,25 @@ jobs:
           grep -E "^(CONFIG_EFI_LOADER|CONFIG_VIDEO_SIMPLE|CONFIG_SYS_CONSOLE_IS_IN_ENV|CONFIG_UFS_QCOM|CONFIG_DEFAULT_DEVICE_TREE)=" \
             out/.config >> "$GITHUB_STEP_SUMMARY" || true
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo '### paint-fb' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sed -n '1,60p' out-stub/paint-fb.dis >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo '### arm64 Image header' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          python3 - out/u-boot-nodtb.bin out-stub/paint-fb.bin >> "$GITHUB_STEP_SUMMARY" <<'PY'
+import struct, sys
+for f in sys.argv[1:]:
+	b = open(f, 'rb').read(64)
+	to, sz, fl = struct.unpack_from("<QQQ", b, 8)
+	print(f"{f}: text_offset {to & (2**64 - 1):#x} image_size {sz:#x} flags {fl:#x} magic {b[0x38:0x3c]!r}")
+PY
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
           name: rmx1971-uboot
+          include-hidden-files: true
           path: |
             out/boot.img
             out/boot-boarddtb.img
@@ -51,3 +70,6 @@ jobs:
             out/SHA256SUMS
             out/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb
             out/.config
+            out-stub/boot-stub.img
+            out-stub/paint-fb.bin
+            out-stub/paint-fb.dis

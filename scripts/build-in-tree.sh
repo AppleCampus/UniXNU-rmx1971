@@ -28,6 +28,29 @@ DTB="$OUT_ABS/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb"
 [ -f "$DTB" ] || { echo "error: $DTB missing" >&2; exit 1; }
 [ -f "$OUT_ABS/u-boot-nodtb.bin" ] || { echo "error: u-boot-nodtb.bin missing" >&2; exit 1; }
 
+# The ABL on this handset reads the arm64 Image header in front of the payload
+# and computes a load address from text_offset. U-Boot writes
+# CONFIG_TEXT_BASE - CONFIG_LNX_KRNL_IMG_TEXT_OFFSET_BASE there, which with a
+# position-independent build (TEXT_BASE 0) and the mach-snapdragon default base
+# of 0x80000000 comes out as -0x80000000, i.e. 2 GiB below any RAM. That single
+# field is the difference between the working iOS shim (text_offset 0) and a
+# handset that sits on the splash forever, so fail the build rather than ship it.
+check_header() {
+	python3 - "$1" <<'PY'
+import struct, sys
+b = open(sys.argv[1], 'rb').read(64)
+text_off, image_size, flags = struct.unpack_from("<QQQ", b, 8)
+if b[0x38:0x3c] != b"ARMd":
+	sys.exit(f"error: {sys.argv[1]} has no arm64 Image header")
+if text_off != 0:
+	sys.exit(f"error: text_offset {text_off & (2**64 - 1):#x} != 0 "
+	         f"(set CONFIG_LNX_KRNL_IMG_TEXT_OFFSET_BASE=0x0); the ABL would "
+	         f"load the payload below RAM")
+print(f"    image header ok: text_offset 0 image_size {image_size:#x} flags {flags:#x}")
+PY
+}
+check_header "$OUT_ABS/u-boot-nodtb.bin"
+
 echo "== pack"
 gzip -9 -n -c "$OUT_ABS/u-boot-nodtb.bin" > "$OUT_ABS/u-boot-nodtb.bin.gz"
 
@@ -73,6 +96,7 @@ make -s O="$PROBE_OUT" -j"$(nproc)" \
      CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
 grep -q "rmx1971-probe.env" "$PROBE_OUT/include/generated/autoconf.h" \
     || { echo "error: probe env did not take effect" >&2; exit 1; }
+check_header "$PROBE_OUT/u-boot-nodtb.bin"
 gzip -9 -n -c "$PROBE_OUT/u-boot-nodtb.bin" > "$PROBE_OUT/u-boot-nodtb.bin.gz"
 python3 "$ROOT/scripts/pack-boot.py" "$PROBE_OUT/u-boot-nodtb.bin.gz" \
         --dtb-table "$OUT_ABS/stock-fb.bin" -o "$OUT_ABS/boot-probe.img"

@@ -22,7 +22,7 @@ flash the previous `boot.img` back.
 | Piece | State |
 | --- | --- |
 | U-Boot defconfig, env, DTS for RMX1971 | written, builds in CI |
-| First light (U-Boot banner on the ABL splash) | **not yet confirmed on hardware** — the ABL accepts the image and jumps, U-Boot then dies before the console: see below |
+| First light (U-Boot banner on the ABL splash) | **not yet confirmed on hardware** — four images have stopped on the splash without resetting; two causes found and fixed since (patched DTB table entries, Image header `text_offset`), see below |
 | Storage (UFS at `0x1d84000`) | node enabled, untested |
 | Input, USB, panel init | not attempted — the ABL already leaves a lit panel |
 
@@ -99,11 +99,36 @@ never resets looks identical whether the CPU never started or died in
 
 `gzip(nodtb)` alone, with no table, is the one shape the ABL rejects outright.
 
+### The arm64 Image header
+
+The second thing that had to match: the 64-byte Linux `Image` header U-Boot puts
+in front of its payload (`CONFIG_LINUX_KERNEL_IMAGE_HEADER`, pulled in by
+`ARCH_SNAPDRAGON`). Its `text_offset` field is computed as
+
+```c
+TEXT_OFFSET = CONFIG_TEXT_BASE - CONFIG_LNX_KRNL_IMG_TEXT_OFFSET_BASE
+```
+
+and those two defaults disagree on a position-independent build:
+`qcom_defconfig` sets `CONFIG_POSITION_INDEPENDENT=y` so `CONFIG_TEXT_BASE` is 0,
+while `arch/arm/mach-snapdragon/Kconfig` defaults the base to `0x80000000`. The
+field therefore read `-0x80000000`, and a bootloader that computes
+`base + text_offset` lands 2 GiB below the base load address -- nothing to
+execute, no reset, no output: the handset sits on the splash.
+
+The working iOS shim on this device is the control: `text_offset = 0`, code at
+`+0x800`, `image_size = 0x2d000`, flags `0xa`. `board/realme/rmx1971/rmx1971.config`
+sets `CONFIG_LNX_KRNL_IMG_TEXT_OFFSET_BASE=0x0` to get the same, and
+`scripts/build-in-tree.sh` refuses to pack an image whose header does not say
+`text_offset 0`. `stub/paint-fb.S` reproduces that header byte for byte, which is
+what makes `boot-stub.img` a meaningful experiment rather than a second guess.
+
 | Image | How it is built | Purpose |
 | --- | --- | --- |
 | `boot.img` | `gzip(nodtb)` + patched vendor DTB table | **flash this one** |
 | `boot-probe.img` | same, env is `sleep 15; reset` | proves U-Boot reached `bootcmd` even with no display: the handset reboots by itself ~17 s after the splash |
 | `boot-boarddtb.img` | `gzip(nodtb)` + board DTB + vendor table | the first attempt, kept because it reproduces the logo hang |
+| `boot-stub.img` | `gzip(paint-fb)` + patched vendor DTB table | no U-Boot at all: ~300 bytes of assembly that flood `0x9c000000` with green, stamp a red square, wait ~10 s, then PSCI-reset. Green means the ABL jumped and the container shape is right; the logo means it never reached our code |
 
 The probe environment is compiled in (`CONFIG_ENV_DEFAULT_ENV_TEXT_FILE`), which
 is why it needs a second build directory rather than an env change at run time.
