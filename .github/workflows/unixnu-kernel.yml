@@ -11,6 +11,10 @@ on:
         description: Device repository ref
         required: true
         default: main
+      unixnu_ref:
+        description: UniXNU ref to build with
+        required: false
+        default: main
       defconfig:
         description: Defconfig name (configs/ of the device repository)
         required: true
@@ -88,9 +92,21 @@ jobs:
       DEFCONFIG: ${{ inputs.defconfig }}
       STEPS: ${{ inputs.steps }}
     steps:
+      # In the upstream repository this step is "check out self", because the
+      # workflow lives in UniXNU and the root of the workspace is UniXNU. Here the
+      # workflow lives in the device repository, so the same step has to name the
+      # source tree explicitly -- without this the driver is looked for in
+      # scripts/ of the device repo and the run stops at
+      # "ModuleNotFoundError: No module named 'unixnu'".
+      #
+      # UniXNU lands at the workspace root (no path:) because every later step
+      # runs there and expects ./scripts and ./unixnu; the device repository is
+      # checked out beside it as device/.
       - name: Check out UniXNU
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: UniXNU/UniXNU
+          ref: ${{ inputs.unixnu_ref || 'main' }}
           persist-credentials: false
 
       - name: Check out the device repository
