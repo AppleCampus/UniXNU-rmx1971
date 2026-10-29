@@ -205,20 +205,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          target=uefi-font/Silicon/Silicium/SiliciumPkg/Library/FrameBufferSerialPortLib
-          mkdir -p "$target"
+          # Two names: the path inside the Mu-Silicium repository (what the API takes) and
+          # the local directory that mirrors it (what --uefi is pointed at). Passing the
+          # local one to the API adds a prefix and answers 404.
+          api_path=Silicon/Silicium/SiliciumPkg/Library/FrameBufferSerialPortLib
+          dir=uefi-font/$api_path
+          mkdir -p "$dir"
           curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/DokuroMitsukai/Mu-Silicium/contents/$target/Font.h?ref=main" -o font.json
+            "https://api.github.com/repos/DokuroMitsukai/Mu-Silicium/contents/$api_path/Font.h?ref=main" -o font.json
+          export FONT_DIR="$dir"
           python3 - <<'PY2'
-          import base64, json
+          import base64, json, os
           data = json.load(open('font.json'))
           if 'content' not in data:
               raise SystemExit(f'Font.h not fetched: {data.get("message")}')
           raw = base64.b64decode(data['content'])
-          open('uefi-font/Silicon/Silicium/SiliciumPkg/Library/FrameBufferSerialPortLib/Font.h', 'wb').write(raw)
+          import pathlib
+          pathlib.Path(os.environ['FONT_DIR'], 'Font.h').write_bytes(raw)
           print('Font.h', len(raw), 'bytes, sha', data['sha'][:12])
           PY2
-          grep -c '0x' uefi-font/Silicon/Silicium/SiliciumPkg/Library/FrameBufferSerialPortLib/Font.h
+          grep -c '0x' "$dir/Font.h"
 
       # Everything below is the platform independent half of "unixnu build payload": the
       # driver needs the device repository, the SoC feed and a prelinked kernel.
