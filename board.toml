@@ -70,7 +70,11 @@ fetch = ["KernelCache", "DeviceTree", "StaticTrustCache", "Cryptex1,SystemTrustC
 [kernel]
 defconfig = "rmx1971_defconfig"
 config_fragments = ["arch:configs/common.config", "soc:configs/sdm710.config", "os:configs/ipados.config"]
-patch_series = ["arch:patches/xnu/series", "soc:patches/xnu/series", "os:patches/xnu/series"]
+# device: this repository's own series. It carries the only piece of XNU that is specific
+# to this handset: bsd/dev/sweet_ufs.c, a read-only block driver for the internal UFS that
+# makes the userdata partition a BSD disk (ufsroot0). Without it XNU reaches bsd_init and
+# then idles for ever waiting for a root device -- which is exactly what the first boots did.
+patch_series = ["arch:patches/xnu/series", "soc:patches/xnu/series", "os:patches/xnu/series", "device:patches/xnu/series"]
 archives = [
   "build-corecrypto-14.py",
   "build-corecrypto-14.py --namespace",
@@ -133,6 +137,16 @@ kernel_args = [
   "armcpu-timer-intid=19",
   "sheng-pmgr=2",
   "amfi_get_out_of_my_way=1",
+  # Root on the internal UFS. rd=ufsroot0 is what makes IOFindBSDRoot call the board's
+  # driver instead of waiting for an IOMedia to appear; ufsroot= names the GPT partition
+  # it should expose (userdata, LUN0 entry 14 at LBA 0x198900 on this unit).
+  #
+  # userdata still holds Android's encrypted filesystem, so the mount itself will fail with
+  # errno 19 and the kernel will retry -- that is the expected outcome of this step and it
+  # costs nothing, because the driver refuses writes. What matters is the two lines it
+  # prints first: the host handover and the partition geometry.
+  "rd=ufsroot0",
+  "ufsroot=userdata",
 ]
 
 [payload.adt]

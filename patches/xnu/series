@@ -1,0 +1,2 @@
+# Root device on the internal UFS. Applied to every build of this board:/n# without it XNU reaches bsd_init and then idles forever waiting for a root device.
+sweet-ufs-root.patch
