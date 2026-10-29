@@ -229,3 +229,4 @@ build_env_variant() { # $1 = variant name, $2 = env file, $3 = boot image name
 build_env_variant probe board/realme/rmx1971/rmx1971-probe.env boot-probe.img
 build_env_variant diag  board/realme/rmx1971/rmx1971-diag.env  boot-diag.img
 build_env_variant usb   board/realme/rmx1971/rmx1971-usb.env   boot-usb.img
+build_env_variant efi   board/realme/rmx1971/rmx1971-efi.env   boot-efi.img
