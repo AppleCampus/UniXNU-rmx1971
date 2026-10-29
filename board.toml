@@ -116,6 +116,12 @@ dram_size = "0x7e2c0000"
 # the console is up. Revisit once the padding or the glyph table has room.
 panic_screen = false
 kernel_args = [
+  # -v: verbose boot. The first boot reached bsd_init and then went idle with no
+  # message after the NVRAM lines, which is indistinguishable from a wait inside a
+  # kext that never matches. Verbose mode floods the console, and the boot progress
+  # panel keeps the *latest* lines -- so the last lines on screen become the answer
+  # to "where did it stop" without adding a single probe.
+  "-v",
   "debug=0x14e",
   "kt_fixed_zones=120",
   "ml-timeout-lock-panic-scale=40",
@@ -132,6 +138,14 @@ kernel_args = [
 [payload.adt]
 chip_id = "8011"
 root_match_volume_uuid = "04769D26-2CA0-4825-B443-E2E5F88300F2"
+# DarwinBoot hands XNU a contiguous window and defaults to 256 MiB when nobody asks for
+# more. The first boot proved that is what happened: the panel reported
+# totalMiB=256, free4k=44286 (173 MiB) and wired=21203 (83 MB), which adds up to 256.
+# This board has one contiguous range to offer -- the one dts/rmx1971.dts declares,
+# 0x1_0000_0000 + 0x7e2c_0000 -- so ask for all of it but the last 2.75 MiB, in the
+# 2 MiB steps the ADT requires. Nothing about the boot path changes; there is simply
+# 7.9x more memory to fail a root mount in, and room for userland later.
+owned_memory_size = "0x7e000000"
 
 [adt.product.string]
 model = "realme,rmx1971"
