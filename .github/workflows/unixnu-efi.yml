@@ -61,10 +61,23 @@ jobs:
             [ -n "$src" ] || src=$(ls /usr/lib/llvm-*/bin/"$1" 2>/dev/null | head -1)
             if [ -n "$src" ]; then sudo ln -sf "$src" "$dest"; else echo "MISSING $1"; return 1; fi
           }
-          for t in clang clang++ ld.lld llvm-ar llvm-objcopy llvm-rc llvm-size llvm-nm llvm-strip llvm-dlltool; do
+          # The set edk2's CLANGPDB toolchain names in tools_def: CC, AR, LIB,
+          # DLINK, OBJCOPY, RC, plus the reporting tools. Anything missing here
+          # surfaces one module into the build as "not found", so check them all
+          # up front instead of discovering them one CI run at a time.
+          for t in clang clang++ ld.lld llvm-ar llvm-lib llvm-objcopy llvm-rc \
+                   llvm-size llvm-nm llvm-strip llvm-mt llvm-dlltool; do
             link_tool "$t" || true
           done
-          ls -l /usr/local/bin
+          missing=0
+          for t in clang ld.lld llvm-ar llvm-lib llvm-objcopy llvm-rc; do
+            if [ -x "/usr/local/bin/$t" ]; then
+              printf 'ok      %s\n' "$t"
+            else
+              printf 'MISSING %s\n' "$t"; missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || { ls /usr/lib/llvm-*/bin | sort -u; exit 1; }
           /usr/local/bin/clang --version | head -1
           /usr/local/bin/ld.lld --version
 
