@@ -3,6 +3,21 @@ name: U-Boot for rmx1971
 on:
   push:
     branches: [main]
+    # Only the inputs of this build. Without the filter every UniXNU-side commit
+    # would rebuild the firmware for six minutes to produce identical bytes.
+    paths:
+      - "board/**"
+      - "dts/**"
+      - "patches/**"
+      - "stub/**"
+      - "firmware/**"
+      - "scripts/build-in-tree.sh"
+      - "scripts/overlay.sh"
+      - "scripts/build-stub.sh"
+      - "scripts/pack-boot.py"
+      - "scripts/patch-stock-dtb.py"
+      - "scripts/report-header.py"
+      - ".github/workflows/uboot.yml"
   workflow_dispatch:
 
 jobs:

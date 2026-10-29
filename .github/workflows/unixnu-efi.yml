@@ -45,22 +45,28 @@ jobs:
           sudo apt-get install -y -qq build-essential uuid-dev python3 \
             clang lld llvm iasl nasm mtools dosfstools
 
-      # EDK II's CLANGPDB toolchain looks clang, llvm-ar, llvm-objcopy and ld.lld
-      # up by bare name inside CLANG_BIN. Ubuntu ships the LLVM utilities
-      # versioned, so expose unversioned names where the toolchain expects them.
-      - name: Unversioned LLVM names
+      # EDK II's CLANGPDB toolchain prefixes every tool with CLANG_BIN and names
+      # it without a version: $(CLANG_BIN)clang, $(CLANG_BIN)ld.lld,
+      # $(CLANG_BIN)llvm-objcopy. Ubuntu installs clang and ld.lld unversioned
+      # under /usr/bin but the LLVM utilities versioned, so build one directory
+      # that has all of them under the plain names. Getting this wrong fails as
+      # "/usr/local/bin/clang: not found" one module into the build.
+      - name: One directory of unversioned LLVM tools
         run: |
           sudo mkdir -p /usr/local/bin
-          for t in llvm-ar llvm-objcopy llvm-rc llvm-size llvm-nm llvm-strip llvm-dlltool; do
-            if ! command -v "$t" >/dev/null 2>&1; then
-              src=$(ls /usr/lib/llvm-*/bin/$t 2>/dev/null | head -1)
-              if [ -n "$src" ]; then sudo ln -sf "$src" "/usr/local/bin/$t"; fi
-            fi
+          link_tool() {
+            dest="/usr/local/bin/$1"
+            [ -e "$dest" ] && return 0
+            src=$(command -v "$1" 2>/dev/null || true)
+            [ -n "$src" ] || src=$(ls /usr/lib/llvm-*/bin/"$1" 2>/dev/null | head -1)
+            if [ -n "$src" ]; then sudo ln -sf "$src" "$dest"; else echo "MISSING $1"; return 1; fi
+          }
+          for t in clang clang++ ld.lld llvm-ar llvm-objcopy llvm-rc llvm-size llvm-nm llvm-strip llvm-dlltool; do
+            link_tool "$t" || true
           done
-          clang --version | head -1
-          for t in clang llvm-ar llvm-objcopy ld.lld; do
-            printf '%-14s %s\n' "$t" "$(command -v "$t" || echo MISSING)"
-          done
+          ls -l /usr/local/bin
+          /usr/local/bin/clang --version | head -1
+          /usr/local/bin/ld.lld --version
 
       - name: Fetch UniXNU
         run: |
