@@ -19,7 +19,7 @@ CONFIG_XNU_SOURCE_CORECRYPTO14=y
 CONFIG_XNU_SOURCE_PTHREAD=y
 CONFIG_XNU_ARM_DT_PLATFORM=y
 CONFIG_XNU_ARMCPU=y
-# The boot progress display (package/, mounted as kits/sirius): draws the kernel console lines
+# The boot progress display (package/, mounted as kits/rmx1971): draws the kernel console lines
 # on the frame buffer in a readable font. Upstream's interlock requires the UFS/owner-root,
 # Virtio and source-corecrypto build; this board is eMMC and relaxes it in
 # scripts/build-xnu-4k-baseline.sh (the one documented deviation from the upstream script).
@@ -32,7 +32,7 @@ CONFIG_XNU_CRYPTO_BOOTSTRAP="prelinked"
 # The DEVELOPMENT kernel references native_legacy_display_probe() unconditionally
 # (offline-component-load-probes.patch); the dormant stub archive of
 # scripts/build-sirius-probes.py keeps the link closed (package/LegacyDisplayProbe.cpp).
-CONFIG_XNU_EXTRA_LD_ARCHIVES="-Wl,-force_load,{tree}/build/sirius-probes/libSiriusProbes.a"
+CONFIG_XNU_EXTRA_LD_ARCHIVES="-Wl,-force_load,{tree}/build/rmx1971-probes/libRmx1971Probes.a"
 CONFIG_XNU_NATIVE_UFS=n
 CONFIG_XNU_NATIVE_AES=n
 CONFIG_XNU_NATIVE_VIRTIO_BLOCK=n

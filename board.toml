@@ -55,16 +55,32 @@ fetch = ["KernelCache", "DeviceTree", "StaticTrustCache", "Cryptex1,SystemTrustC
 # The kernel step runs on macOS + Xcode; the package, payload and boot image
 # steps run anywhere. defconfig overrides the fragments in order.
 #
-# archives stays empty until the board's own kit sources exist here: sirius
-# builds build-sirius-probes.py, build-boot-progress.py, build-sirius-pmgr.py and
-# build-sirius-emmc.py, and the UFS counterpart of the last one is exactly what
-# this port has to write. An empty list keeps `unixnu status` honest about that
-# instead of pointing at scripts that are not ported yet.
+# The kit archives, carried over from the sirius port:
+#   boot-progress - draws the kernel console on the framebuffer. Without it every
+#                   line goes to a serial port this handset does not have, so it
+#                   is the difference between a bring-up and a black screen.
+#   probes        - the dormant legacy-display probe the DEVELOPMENT kernel
+#                   references unconditionally; without it the link does not close.
+#   pmgr          - advertises the ApplePMGRNub that AMFI looks for (sheng-pmgr=2).
+# The two sirius kits that are *not* here are the hardware ones: sirius_usb.c is a
+# CDC-ACM console over DWC3 and sirius_emmc.c drives SDCC1. RMX1971 stores on UFS,
+# so their UFS counterpart is the actual work this port still owes; until it
+# exists, package/Rmx1971Stubs.c satisfies the symbols boot-progress weak-imports
+# so the diagnostic build stays inert instead of faulting on address zero.
 [kernel]
 defconfig = "rmx1971_defconfig"
 config_fragments = ["arch:configs/common.config", "soc:configs/sdm710.config", "os:configs/ipados.config"]
 patch_series = ["arch:patches/xnu/series", "soc:patches/xnu/series", "os:patches/xnu/series"]
-archives = []
+archives = [
+  "build-corecrypto-14.py",
+  "build-corecrypto-14.py --namespace",
+  "component:ArmDTPlatform",
+  "component:ArmCpu",
+  "build-libpthread-kernel.py",
+  "build-rmx1971-probes.py",
+  "build-boot-progress.py",
+  "build-rmx1971-pmgr.py",
+]
 
 [device_tree]
 source = "device:dts/rmx1971.dts"
