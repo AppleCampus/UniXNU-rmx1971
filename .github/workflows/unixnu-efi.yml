@@ -1,0 +1,134 @@
+name: UniXNU EFI application
+
+# Builds UniXNU's own EFI application and wraps it in the payload volume this
+# board boots from.
+#
+# Deliberately not built through the `unixnu` driver: that path assembles a full
+# device port (board.toml, kernel, IPSW prelink) and its kernel step needs macOS
+# plus Xcode. The application itself is an ordinary EDK II AArch64 build against
+# MdePkg, so it stands alone, and getting the real UniXNU binary onto this
+# handset is the quickest way to learn how far the UEFI side gets before any of
+# the XNU plumbing exists.
+#
+# The payload volume is a FAT16 image the size of the vm-system partition
+# (128 MiB, LUN0 entry 8). U-Boot's EFI layer publishes FAT partitions as
+# EFI_SIMPLE_FILE_SYSTEM, so `bootefi bootmgr` finds \EFI\BOOT\BOOTAA64.EFI and
+# runs it -- the same layout the sirius port uses, with the vendor partition
+# swapped for one nothing on this device needs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/unixnu-efi.yml"
+      - "scripts/check-pe.py"
+  workflow_dispatch:
+    inputs:
+      unixnu_ref:
+        description: UniXNU ref to build
+        required: false
+        default: "main"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Host tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential uuid-dev python3 \
+            clang lld llvm iasl nasm mtools dosfstools
+
+      # EDK II's CLANGPDB toolchain looks clang, llvm-ar, llvm-objcopy and ld.lld
+      # up by bare name inside CLANG_BIN. Ubuntu ships the LLVM utilities
+      # versioned, so expose unversioned names where the toolchain expects them.
+      - name: Unversioned LLVM names
+        run: |
+          sudo mkdir -p /usr/local/bin
+          for t in llvm-ar llvm-objcopy llvm-rc llvm-size llvm-nm llvm-strip llvm-dlltool; do
+            if ! command -v "$t" >/dev/null 2>&1; then
+              src=$(ls /usr/lib/llvm-*/bin/$t 2>/dev/null | head -1)
+              if [ -n "$src" ]; then sudo ln -sf "$src" "/usr/local/bin/$t"; fi
+            fi
+          done
+          clang --version | head -1
+          for t in clang llvm-ar llvm-objcopy ld.lld; do
+            printf '%-14s %s\n' "$t" "$(command -v "$t" || echo MISSING)"
+          done
+
+      - name: Fetch UniXNU
+        run: |
+          git clone --depth 1 -b "${{ inputs.unixnu_ref || 'main' }}" \
+            https://github.com/UniXNU/UniXNU unixnu-src
+          git -C unixnu-src log --oneline -1
+
+      # mu_basecore is the EDK II fork the project pins. release/202608 is what
+      # package/build.sh names; fall back to the default branch so a renamed
+      # branch degrades to "maybe newer" instead of failing the job.
+      - name: Fetch edk2
+        run: |
+          if git clone --depth 1 -b release/202608 \
+               https://github.com/microsoft/mu_basecore Mu_Basecore; then
+            echo "edk2: release/202608"
+          else
+            rm -rf Mu_Basecore
+            git clone --depth 1 https://github.com/microsoft/mu_basecore Mu_Basecore
+            echo "edk2: default branch"
+          fi
+          cd Mu_Basecore
+          git submodule update --init --depth 1 \
+            MdePkg/Library/BaseFdtLib/libfdt \
+            MdePkg/Library/MipiSysTLib/mipisyst \
+            BaseTools/Source/C/BrotliCompress/brotli
+          git log --oneline -1
+
+      - name: Build UniXNU.efi
+        env:
+          UNIXNU_EDK2: ${{ github.workspace }}/Mu_Basecore
+          CLANG_BIN: /usr/local/bin/
+          JOBS: 4
+        run: |
+          bash unixnu-src/package/build.sh -b DEBUG -t CLANGPDB
+          ls -l unixnu-src/package/Build/Out/AARCH64-DEBUG/
+          python3 scripts/check-pe.py \
+            unixnu-src/package/Build/Out/AARCH64-DEBUG/UniXNU.efi
+
+      - name: Pack the payload volume
+        run: |
+          set -euo pipefail
+          EFI=unixnu-src/package/Build/Out/AARCH64-DEBUG/UniXNU.efi
+          test -s "$EFI"
+          # 128 MiB is the vm-system partition (LUN0 entry 8, LBA 0x2d00, 0x8000 blocks).
+          truncate -s 128M unixnu-payload.img
+          mkfs.vfat -F 16 -n UNIXNUESP unixnu-payload.img
+          mmd -i unixnu-payload.img ::/EFI ::/EFI/BOOT
+          mcopy -i unixnu-payload.img "$EFI" ::/EFI/BOOT/BOOTAA64.EFI
+          mdir -i unixnu-payload.img ::/EFI/BOOT
+          sha256sum unixnu-payload.img "$EFI"
+
+      - name: Report
+        run: |
+          {
+            echo '### UniXNU.efi'
+            echo '```'
+            sha256sum unixnu-src/package/Build/Out/AARCH64-DEBUG/*.efi
+            echo '```'
+            echo '### payload volume'
+            echo '```'
+            sha256sum unixnu-payload.img
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rmx1971-unixnu-efi
+          if-no-files-found: error
+          path: |
+            unixnu-payload.img
+            unixnu-src/package/Build/Out/AARCH64-DEBUG/UniXNU.efi
