@@ -1,36 +1,48 @@
-name: UniXNU EFI application
+name: UniXNU payload volume
 
-# Builds UniXNU's own EFI application and wraps it in the payload volume this
-# board boots from.
+# Assembles the volume this board actually boots from: UniXNU.efi, DarwinBoot.efi, the
+# prelinked kernel from the macOS kernel workflow, and the ADT UniXNU generates from
+# dts/rmx1971.dts -- all in one FAT16 image the size of the vm-system partition.
 #
-# Deliberately not built through the `unixnu` driver: that path assembles a full
-# device port (board.toml, kernel, IPSW prelink) and its kernel step needs macOS
-# plus Xcode. The application itself is an ordinary EDK II AArch64 build against
-# MdePkg, so it stands alone, and getting the real UniXNU binary onto this
-# handset is the quickest way to learn how far the UEFI side gets before any of
-# the XNU plumbing exists.
+# Why the assembly lives here and not in the kernel workflow: the kernel needs macOS and
+# Xcode, but everything after it is platform independent. The two EFI binaries need EDK II,
+# which builds fine on Linux, and the volume is written with mtools so it is byte-identical
+# on every run. Splitting it this way keeps the expensive macOS job to the one step that
+# actually requires a Mac.
 #
-# The payload volume is a FAT16 image the size of the vm-system partition
-# (128 MiB, LUN0 entry 8). U-Boot's EFI layer publishes FAT partitions as
-# EFI_SIMPLE_FILE_SYSTEM, so `bootefi bootmgr` finds \EFI\BOOT\BOOTAA64.EFI and
-# runs it -- the same layout the sirius port uses, with the vendor partition
-# swapped for one nothing on this device needs.
+# Volume layout (what U-Boot's EFI boot manager looks for):
+#   \EFI\BOOT\BOOTAA64.EFI                UniXNU.efi    <- bootefi bootmgr finds this
+#   \EFI\UniXNU\unixnu.toml               menu, kernel arguments, DarwinBoot driver
+#   \EFI\UniXNU\Payloads\DarwinBoot.efi   the XNU loader
+#   \EFI\UniXNU\Payloads\kernel.macho     prelinked kernel
+#   \EFI\UniXNU\Payloads\kernel.macho.adt device tree for XNU
+#
+# The image is flashed with `fastboot flash vm-system rmx1971-payload.img`.
 
 on:
   push:
     branches: [main]
     paths:
       - ".github/workflows/unixnu-efi.yml"
+      - "board.toml"
+      - "configs/**"
+      - "dts/**"
       - "scripts/check-pe.py"
+      - "scripts/make-uboot-payload.py"
   workflow_dispatch:
     inputs:
       unixnu_ref:
         description: UniXNU ref to build
         required: false
         default: "main"
+      kernel_run_id:
+        description: Kernel workflow run to take kernel.macho from (empty = newest successful one)
+        required: false
+        default: ""
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build:
@@ -38,12 +50,14 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: device
 
       - name: Host tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential uuid-dev python3 \
-            clang lld llvm iasl nasm mtools dosfstools
+            clang lld llvm iasl nasm mtools dosfstools device-tree-compiler
 
       # EDK II's CLANGPDB toolchain prefixes every tool with CLANG_BIN and names
       # it without a version: $(CLANG_BIN)clang, $(CLANG_BIN)ld.lld,
@@ -61,10 +75,6 @@ jobs:
             [ -n "$src" ] || src=$(ls /usr/lib/llvm-*/bin/"$1" 2>/dev/null | head -1)
             if [ -n "$src" ]; then sudo ln -sf "$src" "$dest"; else echo "MISSING $1"; return 1; fi
           }
-          # The set edk2's CLANGPDB toolchain names in tools_def: CC, AR, LIB,
-          # DLINK, OBJCOPY, RC, plus the reporting tools. Anything missing here
-          # surfaces one module into the build as "not found", so check them all
-          # up front instead of discovering them one CI run at a time.
           for t in clang clang++ ld.lld lld lld-link llvm-ar llvm-lib llvm-objcopy \
                    llvm-rc llvm-size llvm-nm llvm-strip llvm-mt llvm-dlltool \
                    llvm-readobj llvm-objdump llvm-ranlib llvm-cxxfilt llvm-pdbutil; do
@@ -80,7 +90,6 @@ jobs:
           done
           [ "$missing" -eq 0 ] || { ls /usr/lib/llvm-*/bin | sort -u; exit 1; }
           /usr/local/bin/clang --version | head -1
-          /usr/local/bin/ld.lld --version
 
       - name: Fetch UniXNU
         run: |
@@ -116,48 +125,114 @@ jobs:
         run: |
           bash unixnu-src/package/build.sh -b DEBUG -t CLANGPDB
           ls -l unixnu-src/package/Build/Out/AARCH64-DEBUG/
-          python3 scripts/check-pe.py \
+          python3 device/scripts/check-pe.py \
             unixnu-src/package/Build/Out/AARCH64-DEBUG/UniXNU.efi
 
-      # The smoke-test application, built by the same script that produced the
-      # first working hello.efi. It ships inside the payload volume so UniXNU
-      # can start it through its own loader rather than U-Boot's bootefi.
-      - name: Build the test payload
-        run: bash scripts/build-payload.sh out-payload
-
-      - name: Pack the payload volume
+      # DarwinBoot is the driver that actually starts XNU; without it the menu has an
+      # entry it cannot boot. Its sources are this repository's drivers/DarwinBoot (a
+      # submodule upstream), built against the same edk2 tree and the same CLANGPDB
+      # toolchain, so the ELF/PE conventions match what UniXNU expects.
+      - name: Build DarwinBoot.efi
+        env:
+          UNIXNU_EDK2: ${{ github.workspace }}/Mu_Basecore
+          CLANG_BIN: /usr/local/bin/
         run: |
           set -euo pipefail
-          EFI=unixnu-src/package/Build/Out/AARCH64-DEBUG/UniXNU.efi
-          test -s "$EFI"
-          # 128 MiB is the vm-system partition (LUN0 entry 8, LBA 0x2d00, 0x8000 blocks).
-          truncate -s 128M unixnu-payload.img
-          mkfs.vfat -F 16 -n UNIXNUESP unixnu-payload.img
-          mmd -i unixnu-payload.img ::/EFI ::/EFI/BOOT ::/EFI/UniXNU
-          mcopy -i unixnu-payload.img "$EFI" ::/EFI/BOOT/BOOTAA64.EFI
-          mcopy -i unixnu-payload.img out-payload/hello.efi ::/EFI/UniXNU/hello.efi
-          mcopy -i unixnu-payload.img payload/unixnu.toml ::/EFI/UniXNU/unixnu.toml
-          echo '--- volume contents'
-          mdir -i unixnu-payload.img -/ ::/
-          sha256sum unixnu-payload.img "$EFI"
+          export WORKSPACE="$PWD/device"
+          export PACKAGES_PATH="$PWD/device/drivers/DarwinBoot:$PWD/unixnu-src/package:$PWD/Mu_Basecore"
+          export EDK_TOOLS_PATH="$PWD/Mu_Basecore/BaseTools"
+          export CONF_PATH="$PWD/unixnu-src/package/Build/Conf"
+          export PYTHON_COMMAND=python3
+          export PATH="$EDK_TOOLS_PATH/BinWrappers/PosixLike:$EDK_TOOLS_PATH/Source/C/bin:$PATH"
+          cd device
+          build -p DarwinBootPkg/DarwinBoot.dsc -a AARCH64 -b DEBUG -t CLANGPDB -n 4
+          efi=$(find Build -name 'DarwinBoot.efi' | head -1)
+          ls -l "$efi"
+          python3 scripts/check-pe.py "$efi"
+
+      # The kernel is the one product that needs a Mac. Take it from the kernel
+      # workflow instead of rebuilding it here.
+      - name: Fetch the prelinked kernel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.kernel_run_id }}
+        run: |
+          set -euo pipefail
+          repo="${{ github.repository }}"
+          if [ -z "${RUN_ID:-}" ]; then
+            RUN_ID=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$repo/actions/workflows/unixnu-kernel.yml/runs?status=success&per_page=1" \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["workflow_runs"][0]["id"])')
+            echo "newest successful kernel run: $RUN_ID"
+          fi
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$repo/actions/runs/$RUN_ID/artifacts" -o artifacts.json
+          aid=$(python3 - <<'PY'
+          import json
+          data = json.load(open('artifacts.json'))
+          picks = [a for a in data.get('artifacts', []) if a['name'].startswith('rmx1971-xnu-')]
+          if not picks:
+              raise SystemExit('no rmx1971-xnu-* artifact in that run; the kernel step probably failed')
+          picks.sort(key=lambda a: a['created_at'], reverse=True)
+          print(picks[0]['id'])
+          PY
+          )
+          echo "kernel artifact: $aid"
+          curl -fsSL --retry 3 --retry-all-errors -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$repo/actions/artifacts/$aid/zip" -o kernel.zip
+          python3 - <<'PY'
+          import zipfile
+          z = zipfile.ZipFile('kernel.zip')
+          names = [n for n in z.namelist() if n.endswith('kernel.macho')]
+          if not names:
+              raise SystemExit(f'no kernel.macho in the artifact: {z.namelist()}')
+          data = z.read(names[0])
+          open('kernel.macho', 'wb').write(data)
+          print('kernel.macho', len(data), 'bytes from', names[0], 'first bytes', data[:4])
+          PY
+
+      # Everything below is the platform independent half of "unixnu build payload": the
+      # driver needs the device repository, the SoC feed and a prelinked kernel.
+      - name: Build the payload volume
+        env:
+          UNIXNU_DEVICE: ${{ github.workspace }}/device
+        run: |
+          set -euo pipefail
+          cp kernel.macho "$RUNNER_TEMP/kernel.macho"
+          cd unixnu-src
+          ./unixnu fetch sdm710
+          ./unixnu defconfig rmx1971_defconfig
+          ./unixnu build payload --kernel "$RUNNER_TEMP/kernel.macho" \
+            --edk2 "${{ github.workspace }}/Mu_Basecore"
+          echo '--- payload report'
+          cat out/*/*/*/payload/payload.json 2>/dev/null || true
+
+      - name: Add the loader chain to the volume
+        run: |
+          set -euo pipefail
+          payload=$(find unixnu-src/out -name payload.img | head -1)
+          echo "payload image: $payload"
+          python3 device/scripts/make-uboot-payload.py \
+            --payload "$payload" \
+            --unixnu-efi unixnu-src/package/Build/Out/AARCH64-DEBUG/UniXNU.efi \
+            --darwinboot-efi "$(find device/Build -name DarwinBoot.efi | head -1)" \
+            --output rmx1971-payload.img
 
       - name: Report
         run: |
           {
-            echo '### UniXNU.efi'
-            echo '```'
-            sha256sum unixnu-src/package/Build/Out/AARCH64-DEBUG/*.efi
-            echo '```'
             echo '### payload volume'
             echo '```'
-            sha256sum unixnu-payload.img
+            sha256sum rmx1971-payload.img
+            mdir -i rmx1971-payload.img -/ ::
             echo '```'
+            echo 'flash with `fastboot flash vm-system rmx1971-payload.img`'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: rmx1971-unixnu-efi
+          name: rmx1971-payload
           if-no-files-found: error
           path: |
-            unixnu-payload.img
-            unixnu-src/package/Build/Out/AARCH64-DEBUG/UniXNU.efi
+            rmx1971-payload.img
+            unixnu-src/out/*/*/*/payload/payload.json
