@@ -12,26 +12,42 @@ diff --git a/bsd/conf/files b/bsd/conf/files
 diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
 --- a/iokit/bsddev/IOKitBSDInit.cpp
 +++ b/iokit/bsddev/IOKitBSDInit.cpp
-@@ -778,6 +778,23 @@
+@@ -778,6 +778,39 @@
  			regEntry->release();                                                            /* Toss the entry */
  		}
  	}
-+//
-+//	RMX1971: root on a GPT partition of the internal UFS (bsd/dev/sweet_ufs.c).
-+//	Only reached with rd=ufsroot0, so every other root path is untouched.
-+//
-+if (strcmp(rdBootVar, "ufsroot0") == 0) {
-+	extern int sweet_ufs_rootdev(dev_t *dev);
-+	OSSafeReleaseNULL(matching);
-+	int ufs_error = sweet_ufs_rootdev(root);
-+	if (ufs_error) {
-+		panic("IOFindBSDRoot: RMX1971 UFS root %s unavailable: %d", rdBootVar, ufs_error);
++	//
++	//	RMX1971: the internal UFS as a root candidate (bsd/dev/sweet_ufs.c).
++	//
++	//	Every line here is unconditional. Two boots in a row showed vfs_mountroot
++	//	retrying every five seconds with no console output at all, which left three
++	//	questions open at once: does this function run at all, does "rd" survive into
++	//	boot_args, and is the UFS host still in the state the bootloader left it in.
++	//	The driver answers the third itself; the two IOLog lines answer the first two.
++	//
++	{
++		extern int sweet_ufs_rootdev(dev_t *dev);
++		static int ufs_state = -2;              /* -2: not tried yet */
++		static dev_t ufs_dev = 0;
++
++		if (ufs_state == -2) {
++			ufs_state = sweet_ufs_rootdev(&ufs_dev);
++			IOLog("RMX1971 UFS: driver init -> %d, dev 0x%x\n", ufs_state, (unsigned)ufs_dev);
++		}
++		IOLog("RMX1971 UFS: rd=\"%s\", driver state %d\n", rdBootVar, ufs_state);
++
++		if (strcmp(rdBootVar, "ufsroot0") == 0) {
++			if (ufs_state) {
++				panic("IOFindBSDRoot: RMX1971 UFS root unavailable: %d", ufs_state);
++			}
++			OSSafeReleaseNULL(matching);
++			*root = ufs_dev;
++			strlcpy(rootName, rdBootVar, rootNameSize);
++			IOLog("BSD root: %s, major %d, minor %d\n", rootName, major(*root), minor(*root));
++			*oflags = 0;
++			goto iofrootx;
++		}
 +	}
-+	strlcpy(rootName, rdBootVar, rootNameSize);
-+	IOLog("BSD root: %s, major %d, minor %d\n", rootName, major(*root), minor(*root));
-+	*oflags = 0;
-+	goto iofrootx;
-+}
 +
  
  //
@@ -40,7 +56,7 @@ diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/sweet_ufs.c
-@@ -0,0 +1,533 @@
+@@ -0,0 +1,534 @@
 +/*
 + * Internal UFS root device for the Realme 5 Pro (RMX1971, codename "sweet"), read-only.
 + *
@@ -53,7 +69,8 @@ new file mode 100644
 + *
 + * All DMA goes through one physically contiguous allocation (request descriptors plus a
 + * 1 MiB bounce buffer); the host is not cache coherent, so caches are cleaned and
-+ * invalidated around each command. Writes are refused.
++ * invalidated around each command. Writes are refused, so a failed mount cannot damage
++ * anything on the device.
 + *
 + * Differences from the ios-sweet original: the ARM64_BOARD_CONFIG_SWEET guard is gone
 + * (this tree builds the BCM2837 machine config, where that macro is undefined and the file
