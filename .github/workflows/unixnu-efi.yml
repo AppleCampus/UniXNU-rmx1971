@@ -65,12 +65,13 @@ jobs:
           # DLINK, OBJCOPY, RC, plus the reporting tools. Anything missing here
           # surfaces one module into the build as "not found", so check them all
           # up front instead of discovering them one CI run at a time.
-          for t in clang clang++ ld.lld llvm-ar llvm-lib llvm-objcopy llvm-rc \
-                   llvm-size llvm-nm llvm-strip llvm-mt llvm-dlltool; do
+          for t in clang clang++ ld.lld lld lld-link llvm-ar llvm-lib llvm-objcopy \
+                   llvm-rc llvm-size llvm-nm llvm-strip llvm-mt llvm-dlltool \
+                   llvm-readobj llvm-objdump llvm-ranlib llvm-cxxfilt llvm-pdbutil; do
             link_tool "$t" || true
           done
           missing=0
-          for t in clang ld.lld llvm-ar llvm-lib llvm-objcopy llvm-rc; do
+          for t in clang ld.lld lld-link llvm-ar llvm-lib llvm-objcopy llvm-rc; do
             if [ -x "/usr/local/bin/$t" ]; then
               printf 'ok      %s\n' "$t"
             else
