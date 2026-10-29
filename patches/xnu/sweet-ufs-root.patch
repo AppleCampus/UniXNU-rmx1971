@@ -12,7 +12,7 @@ diff --git a/bsd/conf/files b/bsd/conf/files
 diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
 --- a/iokit/bsddev/IOKitBSDInit.cpp
 +++ b/iokit/bsddev/IOKitBSDInit.cpp
-@@ -778,6 +778,32 @@
+@@ -778,6 +778,34 @@
  			regEntry->release();                                                            /* Toss the entry */
  		}
  	}
@@ -21,6 +21,8 @@ diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
 +	//
 +	//	Kept even though vfs_mountroot now probes the driver itself: this is the only
 +	//	place that sees how "rd" arrived in boot_args, and that is worth one log line.
++	//	IOFindBSDRoot is not on the path this board takes (rootdev was still NODEV when
++	//	vfs_mountroot ran), so nothing here is required for the boot to work.
 +	//
 +	{
 +		extern int sweet_ufs_rootdev(dev_t *dev);
@@ -48,7 +50,7 @@ diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
 diff --git a/bsd/vfs/vfs_subr.c b/bsd/vfs/vfs_subr.c
 --- a/bsd/vfs/vfs_subr.c
 +++ b/bsd/vfs/vfs_subr.c
-@@ -1220,6 +1220,34 @@
+@@ -1220,6 +1220,39 @@
  	vnode_t bdevvp_rootvp;
  
  	/*
@@ -65,17 +67,22 @@ diff --git a/bsd/vfs/vfs_subr.c b/bsd/vfs/vfs_subr.c
 +	 */
 +	{
 +		extern int sweet_ufs_rootdev(dev_t *dev);
++		extern void boot_progress_stage(const char *text);
 +		static int ufs_state = -2;      /* -2: not tried yet */
 +		static dev_t ufs_dev = 0;
 +
 +		if (ufs_state == -2) {
 +			ufs_state = sweet_ufs_rootdev(&ufs_dev);
-+			printf("RMX1971 UFS: driver init -> %d, dev 0x%x, rootdev 0x%x\n",
++		printf("RMX1971 UFS: driver init -> %d, dev 0x%x, rootdev 0x%x\n",
 +		    ufs_state, (unsigned)ufs_dev, (unsigned)rootdev);
 +		}
 +		if (ufs_state == 0 && rootdev == NODEV) {
 +			rootdev = ufs_dev;
-+			printf("RMX1971 UFS: rootdev <- 0x%x\n", (unsigned)rootdev);
++			{
++				char stage[64];
++				snprintf(stage, sizeof(stage), "UFS rootdev <- 0x%x", (unsigned)rootdev);
++				boot_progress_stage(stage);
++			}
 +		}
 +	}
 +
@@ -87,7 +94,7 @@ diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/sweet_ufs.c
-@@ -0,0 +1,533 @@
+@@ -0,0 +1,558 @@
 +/*
 + * Internal UFS root device for the Realme 5 Pro (RMX1971, codename "sweet"), read-only.
 + *
@@ -104,9 +111,10 @@ new file mode 100644
 + *
 + * Differences from the ios-sweet original: the ARM64_BOARD_CONFIG_SWEET guard is gone
 + * (this tree builds the BCM2837 machine config, where that macro is undefined and the file
-+ * would compile to nothing), and the controller address is a constant instead of a
-+ * /sweet-ufs device-tree node, because the ADT this port generates exports only nodes that
-+ * carry "unixnu,adt-name".
++ * would compile to nothing); the controller address is a constant instead of a /sweet-ufs
++ * device-tree node, because the ADT this port generates exports only nodes that carry
++ * "unixnu,adt-name"; and the outcome goes through boot_progress_stage() so it stays on the
++ * frame buffer instead of scrolling away.
 + */
 +#include <sys/param.h>
 +#include <sys/systm.h>
@@ -126,6 +134,11 @@ new file mode 100644
 +#include <pexpert/pexpert.h>
 +#include <pexpert/device_tree.h>
 +#include <libkern/libkern.h>
++
++/* The boot progress kit (package/BootProgress.c) draws a persistent stage line on the
++ * frame buffer; this driver's verdict has to end up there, because everything it printf()s
++ * scrolls away before anyone can read it. */
++extern void boot_progress_stage(const char *text);
 +
 +extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
 +/* osfmk/arm/machine_routines.h, not exported to the BSD layer */
@@ -184,6 +197,7 @@ new file mode 100644
 +	bool ready;
 +} su;
 +
++static char ufs_want[64] = "userdata";
 +static LCK_GRP_DECLARE(sweet_ufs_grp, "sweet_ufs");
 +static LCK_MTX_DECLARE(sweet_ufs_lock, &sweet_ufs_grp);
 +
@@ -554,6 +568,7 @@ new file mode 100644
 +	int error;
 +
 +	PE_parse_boot_argn("ufsroot", want, sizeof(want));
++	strlcpy(ufs_want, want, sizeof(ufs_want));
 +
 +	/* ufshc@1d84000, fixed for SDM670/710/712; 0x3000 covers the UFSHCI registers and
 +	 * the vendor block behind them. The ios-sweet original read this from a /sweet-ufs
@@ -612,12 +627,29 @@ new file mode 100644
 +int
 +sweet_ufs_rootdev(dev_t *dev)
 +{
++	static int reported;
++
 +	if (!su.ready) {
 +		int error = sweet_ufs_init();
 +		if (error) {
++			if (!reported) {
++				char line[72];
++				reported = 1;
++				snprintf(line, sizeof(line), "UFS: init failed %d", error);
++				boot_progress_stage(line);
++			}
 +			return error;
 +		}
 +	}
 +	*dev = su.bdev;
++	if (!reported) {
++		char line[96];
++		reported = 1;
++		snprintf(line, sizeof(line), "UFS ok: %.12s LUN%u 0x%llx %lluMiB ro",
++		    ufs_want, su.lun, (unsigned long long)su.first_block,
++		    (unsigned long long)(su.nblocks * UFS_BLOCK >> 20));
++		boot_progress_stage(line);
++	}
 +	return 0;
 +}
++#endif /* ARM64_BOARD_CONFIG_SWEET */
