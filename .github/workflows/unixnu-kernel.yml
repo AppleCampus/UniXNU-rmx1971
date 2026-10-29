@@ -338,8 +338,12 @@ jobs:
             echo "| userdata | ${USERDATA:-skipped} |"
             echo "| payload | ${PAYLOAD:-skipped} |"
             echo
-            echo "This workflow only checks that the build works. It publishes text logs (7 days) and no images."
-            xcodebuild -version | head -n 1
+            echo "This copy of the workflow publishes the kernel and payload it builds, not only the text logs."
+            # xcodebuild aborts with a broken-pipe exception when its stdout is closed
+            # early, so `xcodebuild -version | head -n 1` kills the step (exit 134) on
+            # runners where the pipe closes first. Capture, then take the first line.
+            xcode_banner=$(xcodebuild -version 2>&1 || true)
+            echo "${xcode_banner%%$'\n'*}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove proprietary inputs
