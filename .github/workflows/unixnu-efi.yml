@@ -195,6 +195,31 @@ jobs:
           print('kernel.macho', len(data), 'bytes from', names[0], 'first bytes', data[:4])
           PY
 
+      # The panic screen is assembled from scripts/xnu-panic-screen.c, which includes the
+      # frame buffer font of Mu-Silicium's FrameBufferSerialPortLib. This board does not use
+      # Mu-Silicium as its firmware -- U-Boot is -- but the font is a table of glyph bitmaps
+      # and nothing else, so fetch that one header instead of a 125 MB checkout. Without it
+      # the payload step refuses to build at all ("Panic screen requires ... Font.h").
+      - name: Fetch the panic-screen font
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          target=uefi-font/Silicon/Silicium/SiliciumPkg/Library/FrameBufferSerialPortLib
+          mkdir -p "$target"
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/DokuroMitsukai/Mu-Silicium/contents/$target/Font.h?ref=main" -o font.json
+          python3 - <<'PY2'
+          import base64, json
+          data = json.load(open('font.json'))
+          if 'content' not in data:
+              raise SystemExit(f'Font.h not fetched: {data.get("message")}')
+          raw = base64.b64decode(data['content'])
+          open('uefi-font/Silicon/Silicium/SiliciumPkg/Library/FrameBufferSerialPortLib/Font.h', 'wb').write(raw)
+          print('Font.h', len(raw), 'bytes, sha', data['sha'][:12])
+          PY2
+          grep -c '0x' uefi-font/Silicon/Silicium/SiliciumPkg/Library/FrameBufferSerialPortLib/Font.h
+
       # Everything below is the platform independent half of "unixnu build payload": the
       # driver needs the device repository, the SoC feed and a prelinked kernel.
       - name: Build the payload volume
@@ -207,7 +232,8 @@ jobs:
           ./unixnu fetch sdm710
           ./unixnu defconfig rmx1971_defconfig
           ./unixnu build payload --kernel "$RUNNER_TEMP/kernel.macho" \
-            --edk2 "${{ github.workspace }}/Mu_Basecore"
+            --edk2 "${{ github.workspace }}/Mu_Basecore" \
+            --uefi "${{ github.workspace }}/uefi-font"
           echo '--- payload report'
           cat out/*/*/*/payload/payload.json 2>/dev/null || true
 
