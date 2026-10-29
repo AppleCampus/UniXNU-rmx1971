@@ -1,0 +1,50 @@
+# Configuration of the RMX1971 payload volume.
+#
+# Read by UniXNU.efi from \EFI\UniXNU\unixnu.toml on the volume it was started
+# from. Until this file existed the application fell back to its built-in
+# configuration -- the four actions Return to firmware / Restart / Power off /
+# Tools -- which is exactly what the first hardware run showed. A real file
+# replaces that fallback, so the menu below is the whole menu.
+#
+# The one entry that matters right now is "hello": it points at the same tiny
+# PE32+ test application that proved EFI_LOADER works, and boots it through
+# UniXNU's own loader instead of U-Boot's bootefi. That exercises the path
+# DarwinBoot.efi will take -- TOML parse, image load from the volume, handoff --
+# without needing an XNU kernel or an IPSW prelink.
+#
+# The action entries are kept from the built-in set: without an input device the
+# timeout boots the default entry, and "exit" is the safe place to land when the
+# payload returns.
+version = 1
+
+[boot]
+timeout = 8
+default = "hello"
+
+[ui]
+title = "RMX1971"
+layout = "auto"
+
+[[entry]]
+id = "hello"
+title = "hello.efi (EFI smoke test)"
+type = "efi"
+path = "hello.efi"
+
+[[entry]]
+id = "exit"
+title = "Return to firmware"
+type = "action"
+action = "exit"
+
+[[entry]]
+id = "reset"
+title = "Restart"
+type = "action"
+action = "reset"
+
+[[entry]]
+id = "tools"
+title = "Tools"
+type = "action"
+action = "tools"

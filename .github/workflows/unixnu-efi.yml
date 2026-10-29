@@ -119,6 +119,12 @@ jobs:
           python3 scripts/check-pe.py \
             unixnu-src/package/Build/Out/AARCH64-DEBUG/UniXNU.efi
 
+      # The smoke-test application, built by the same script that produced the
+      # first working hello.efi. It ships inside the payload volume so UniXNU
+      # can start it through its own loader rather than U-Boot's bootefi.
+      - name: Build the test payload
+        run: bash scripts/build-payload.sh out-payload
+
       - name: Pack the payload volume
         run: |
           set -euo pipefail
@@ -127,9 +133,12 @@ jobs:
           # 128 MiB is the vm-system partition (LUN0 entry 8, LBA 0x2d00, 0x8000 blocks).
           truncate -s 128M unixnu-payload.img
           mkfs.vfat -F 16 -n UNIXNUESP unixnu-payload.img
-          mmd -i unixnu-payload.img ::/EFI ::/EFI/BOOT
+          mmd -i unixnu-payload.img ::/EFI ::/EFI/BOOT ::/EFI/UniXNU
           mcopy -i unixnu-payload.img "$EFI" ::/EFI/BOOT/BOOTAA64.EFI
-          mdir -i unixnu-payload.img ::/EFI/BOOT
+          mcopy -i unixnu-payload.img out-payload/hello.efi ::/EFI/UniXNU/hello.efi
+          mcopy -i unixnu-payload.img payload/unixnu.toml ::/EFI/UniXNU/unixnu.toml
+          echo '--- volume contents'
+          mdir -i unixnu-payload.img -/ ::/
           sha256sum unixnu-payload.img "$EFI"
 
       - name: Report
