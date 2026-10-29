@@ -12,34 +12,27 @@ diff --git a/bsd/conf/files b/bsd/conf/files
 diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
 --- a/iokit/bsddev/IOKitBSDInit.cpp
 +++ b/iokit/bsddev/IOKitBSDInit.cpp
-@@ -778,6 +778,39 @@
+@@ -778,6 +778,32 @@
  			regEntry->release();                                                            /* Toss the entry */
  		}
  	}
 +	//
 +	//	RMX1971: the internal UFS as a root candidate (bsd/dev/sweet_ufs.c).
 +	//
-+	//	Every line here is unconditional. Two boots in a row showed vfs_mountroot
-+	//	retrying every five seconds with no console output at all, which left three
-+	//	questions open at once: does this function run at all, does "rd" survive into
-+	//	boot_args, and is the UFS host still in the state the bootloader left it in.
-+	//	The driver answers the third itself; the two IOLog lines answer the first two.
++	//	Kept even though vfs_mountroot now probes the driver itself: this is the only
++	//	place that sees how "rd" arrived in boot_args, and that is worth one log line.
 +	//
 +	{
 +		extern int sweet_ufs_rootdev(dev_t *dev);
-+		static int ufs_state = -2;              /* -2: not tried yet */
++		static int ufs_state = -2;
 +		static dev_t ufs_dev = 0;
 +
 +		if (ufs_state == -2) {
 +			ufs_state = sweet_ufs_rootdev(&ufs_dev);
-+			IOLog("RMX1971 UFS: driver init -> %d, dev 0x%x\n", ufs_state, (unsigned)ufs_dev);
++			IOLog("RMX1971 UFS: init -> %d, dev 0x%x\n", ufs_state, (unsigned)ufs_dev);
 +		}
-+		IOLog("RMX1971 UFS: rd=\"%s\", driver state %d\n", rdBootVar, ufs_state);
-+
-+		if (strcmp(rdBootVar, "ufsroot0") == 0) {
-+			if (ufs_state) {
-+				panic("IOFindBSDRoot: RMX1971 UFS root unavailable: %d", ufs_state);
-+			}
++		IOLog("RMX1971 UFS: rd=\"%s\", state %d\n", rdBootVar, ufs_state);
++		if (strcmp(rdBootVar, "ufsroot0") == 0 && ufs_state == 0) {
 +			OSSafeReleaseNULL(matching);
 +			*root = ufs_dev;
 +			strlcpy(rootName, rdBootVar, rootNameSize);
@@ -52,11 +45,49 @@ diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
  
  //
  //	Now check if we are trying to root on a memory device
+diff --git a/bsd/vfs/vfs_subr.c b/bsd/vfs/vfs_subr.c
+--- a/bsd/vfs/vfs_subr.c
++++ b/bsd/vfs/vfs_subr.c
+@@ -1220,6 +1220,34 @@
+ 	vnode_t bdevvp_rootvp;
+ 
+ 	/*
++	 * RMX1971: make rootdev point at the internal UFS before anything tries to use it.
++	 *
++	 * IOFindBSDRoot never assigned it: with the driver linked in, the panel showed this
++	 * function being entered every five seconds with no line from either the driver or
++	 * the panic path hooked into IOKitBSDInit, and rootdev stayed NODEV -- so bdevvp()
++	 * failed here before a single filesystem was asked. Probing on this path instead is
++	 * provably reachable, and assigning rootdev turns the retry below into a real mount
++	 * attempt that can report a filesystem-level error.
++	 *
++	 * The driver is read-only and caches its own state, so repeated entries are free.
++	 */
++	{
++		extern int sweet_ufs_rootdev(dev_t *dev);
++		static int ufs_state = -2;      /* -2: not tried yet */
++		static dev_t ufs_dev = 0;
++
++		if (ufs_state == -2) {
++			ufs_state = sweet_ufs_rootdev(&ufs_dev);
++			printf("RMX1971 UFS: driver init -> %d, dev 0x%x, rootdev 0x%x\n",
++		    ufs_state, (unsigned)ufs_dev, (unsigned)rootdev);
++		}
++		if (ufs_state == 0 && rootdev == NODEV) {
++			rootdev = ufs_dev;
++			printf("RMX1971 UFS: rootdev <- 0x%x\n", (unsigned)rootdev);
++		}
++	}
++
++	/*
+ 	 * Reset any prior "unmounting everything" state.  This handles the
+ 	 * situation where mount root and then unmountall and re-mountroot
+ 	 * a new image (see bsd/kern/imageboot.c).
 diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/sweet_ufs.c
-@@ -0,0 +1,534 @@
+@@ -0,0 +1,533 @@
 +/*
 + * Internal UFS root device for the Realme 5 Pro (RMX1971, codename "sweet"), read-only.
 + *
@@ -64,8 +95,7 @@ new file mode 100644
 + * the UFS host enabled with the link up, exactly as the ABL does, so the driver only takes
 + * over the transfer request list and polls SCSI one command at a time on LUN 0. It finds
 + * one GPT partition by name (boot-arg ufsroot=, default "userdata") and exposes it as
-+ * ufsroot0 (rufsroot0), 512-byte sectors over the device's 4 KiB blocks; root on it with
-+ * rd=ufsroot0.
++ * ufsroot0 (rufsroot0), 512-byte sectors over the device's 4 KiB blocks.
 + *
 + * All DMA goes through one physically contiguous allocation (request descriptors plus a
 + * 1 MiB bounce buffer); the host is not cache coherent, so caches are cleaned and
