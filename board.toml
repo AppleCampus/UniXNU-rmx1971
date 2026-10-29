@@ -139,15 +139,24 @@ kernel_args = [
 chip_id = "8011"
 root_match_volume_uuid = "04769D26-2CA0-4825-B443-E2E5F88300F2"
 # DarwinBoot hands XNU a contiguous window and defaults to 256 MiB when nobody asks for
-# more. The first boot proved that is what happened: the panel reported totalMiB=256,
-# free4k=44286 (173 MiB) and wired=21203 (83 MB), which adds up to 256.
+# more; the first boot reported exactly that (free4k 173 MiB + wired 83 MB = 256 MiB).
 #
-# 1 GiB, not the whole 1.97 GiB range the device tree declares. Asking for the entire
-# window leaves DarwinBoot nothing to put the 52 MiB kernel image and its own boot
-# structures in -- the boot after that attempt never reached the kernel, which is what a
-# failed contiguous allocation looks like from the outside. A quarter of the window is
-# still 4x the default, and the rest stays available for the image and for UEFI.
-owned_memory_size = "0x40000000"
+# Two attempts have narrowed the range. Asking for 0x7e000000 (1.97 GiB, the whole range
+# dts/rmx1971.dts declares) failed before the kernel started: UniXNU answered
+# "rmx1971 first boot returned: out of resources", which is DarwinBoot's
+# EFI_OUT_OF_RESOURCES from AllocatePages. The reason is the memory map, not the RAM:
+# DarwinBoot allocates from the EFI map, and that map is U-Boot's memory node,
+# 0x8000_0000 + 0x7e2c_0000 -- the low half. Inside it the ABL reserved regions end at
+# 0xB8300000, the frame buffer takes 10 MiB at 0x9c000000, the scratch buffer sits at
+# 0xa0000000, and U-Boot itself relocates to the top. What is left contiguous is a little
+# over 1 GiB, and the 52 MiB kernel image plus the EFI images have to fit in the same
+# block, so a 1 GiB request is already too close to the edge to rely on.
+#
+# 512 MiB -- twice the default, comfortably inside that block -- is the value that has to
+# work before anything else does. Giving XNU the full 1.97 GiB needs U-Boot's memory node
+# to describe the high half first; that is a boot image change, tracked separately, and it
+# also makes /chosen/dram-base agree with where the kernel actually lives.
+owned_memory_size = "0x20000000"
 
 [adt.product.string]
 model = "realme,rmx1971"
