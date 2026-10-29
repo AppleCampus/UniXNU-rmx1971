@@ -248,10 +248,17 @@ jobs:
           set -euo pipefail
           payload=$(find unixnu-src/out -name payload.img | head -1)
           echo "payload image: $payload"
+          # board.toml turns the panic screen off (this kernel's padding is a few bytes
+          # short), so the payload step does not patch the kernel at all. Run the entry
+          # probe here instead: its stage bars are how an early boot tells us where it
+          # stopped, and they are independent of the panic screen.
+          probe=$(find unixnu-src/out -name patch-xnu-entry-probe.py | head -1)
+          echo "entry probe script: $probe"
           python3 device/scripts/make-uboot-payload.py \
             --payload "$payload" \
             --unixnu-efi unixnu-src/package/Build/Out/AARCH64-DEBUG/UniXNU.efi \
             --darwinboot-efi "$(find device -iname 'DarwinBoot.efi' -type f | head -1)" \
+            --entry-probe "$probe" \
             --output rmx1971-payload.img
 
       - name: Report

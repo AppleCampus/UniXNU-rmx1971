@@ -108,7 +108,13 @@ title = "rmx1971 first boot: XNU to console"
 # with on this handset: the four GiB line is where the usable second half of
 # LPDDR4 starts, 0x1_0000_0000 + 0x7E2C_0000 = 1.97 GiB.
 dram_size = "0x7e2c0000"
-panic_screen = true
+# The panic screen is off for the first boot: scripts/patch-xnu-entry-probe.py builds it into
+# the padding at the end of the kernel text, and this kernel's padding is 0xa30 bytes while
+# the screen assembles to 0xa37 -- seven bytes too many, so the step refuses to write it. The
+# entry probe (the stage bars) is patched in separately by scripts/make-uboot-payload.py with
+# --no-reset, and the console itself is the boot progress layer, so a panic still prints where
+# the console is up. Revisit once the padding or the glyph table has room.
+panic_screen = false
 kernel_args = [
   "debug=0x14e",
   "kt_fixed_zones=120",
