@@ -94,7 +94,7 @@ diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/sweet_ufs.c
-@@ -0,0 +1,558 @@
+@@ -0,0 +1,561 @@
 +/*
 + * Internal UFS root device for the Realme 5 Pro (RMX1971, codename "sweet"), read-only.
 + *
@@ -138,7 +138,10 @@ new file mode 100644
 +/* The boot progress kit (package/BootProgress.c) draws a persistent stage line on the
 + * frame buffer; this driver's verdict has to end up there, because everything it printf()s
 + * scrolls away before anyone can read it. */
-+extern void boot_progress_stage(const char *text);
++/* Weak on purpose: the bootstrap pass of the XNU build links without the kit archives,
++ * and a strong reference here would turn that expected link failure into a hard error. */
++extern void boot_progress_stage(const char *text) __attribute__((weak));
++#define BP_STAGE(text) do { if (boot_progress_stage) boot_progress_stage(text); } while (0)
 +
 +extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
 +/* osfmk/arm/machine_routines.h, not exported to the BSD layer */
@@ -636,7 +639,7 @@ new file mode 100644
 +				char line[72];
 +				reported = 1;
 +				snprintf(line, sizeof(line), "UFS: init failed %d", error);
-+				boot_progress_stage(line);
++				BP_STAGE(line);
 +			}
 +			return error;
 +		}
@@ -648,7 +651,7 @@ new file mode 100644
 +		snprintf(line, sizeof(line), "UFS ok: %.12s LUN%u 0x%llx %lluMiB ro",
 +		    ufs_want, su.lun, (unsigned long long)su.first_block,
 +		    (unsigned long long)(su.nblocks * UFS_BLOCK >> 20));
-+		boot_progress_stage(line);
++		BP_STAGE(line);
 +	}
 +	return 0;
 +}
