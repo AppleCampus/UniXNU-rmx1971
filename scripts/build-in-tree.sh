@@ -206,6 +206,11 @@ ls -l "$OUT_ABS/boot.img" "$OUT_ABS/boot-boarddtb.img" "$OUT_ABS/stock-fb.bin" \
 #
 #   probe - proof of life: no storage, no video dependence, resets itself
 #   diag  - read-only storage and partition reconnaissance
+#   usb   - hands the board to U-Boot's own fastboot over the USB gadget
+#
+# The payload-booting behaviour used to live in a fourth variant; it is in the
+# main environment now, because booting a PE image out of logfs is what this
+# board is for.
 #
 # The environment is compiled into the binary
 # (CONFIG_ENV_DEFAULT_ENV_TEXT_FILE), hence a build directory per variant
@@ -229,4 +234,3 @@ build_env_variant() { # $1 = variant name, $2 = env file, $3 = boot image name
 build_env_variant probe board/realme/rmx1971/rmx1971-probe.env boot-probe.img
 build_env_variant diag  board/realme/rmx1971/rmx1971-diag.env  boot-diag.img
 build_env_variant usb   board/realme/rmx1971/rmx1971-usb.env   boot-usb.img
-build_env_variant efi   board/realme/rmx1971/rmx1971-efi.env   boot-efi.img

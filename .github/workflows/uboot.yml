@@ -42,7 +42,7 @@ jobs:
       - name: Report
         run: |
           sha256sum out/boot.img out/boot-boarddtb.img out/boot-probe.img \
-            out/boot-diag.img out/boot-usb.img out/boot-efi.img \
+            out/boot-diag.img out/boot-usb.img \
             out-stub/boot-stub.img out-stub/paint-fb.bin \
             out/stock-fb.bin \
             out/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb \
@@ -72,7 +72,6 @@ jobs:
             out/boot-probe.img
             out/boot-diag.img
             out/boot-usb.img
-            out/boot-efi.img
             out/SHA256SUMS
             out/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb
             out/.config
