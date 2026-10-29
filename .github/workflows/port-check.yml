@@ -1,0 +1,93 @@
+name: UniXNU device repo check
+
+# Validates this repository as a UniXNU format-2 device repository: that the
+# board description resolves against the shared ARM64 / sdm710 / iPadOS profiles,
+# that the defconfig assembles, and that every path it names exists.
+#
+# This is the check that can run without macOS. The kernel step needs Xcode and
+# is a separate, later job; what it validates here is the part that is easy to
+# get wrong and cheap to catch -- a profile name, a fragment path, a geometry.
+
+on:
+  push:
+    paths:
+      - "board.toml"
+      - "feeds.toml"
+      - "configs/**"
+      - "dts/rmx1971.dts"
+      - "porting.toml"
+      - ".github/workflows/port-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: device
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Host tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq device-tree-compiler
+
+      - name: Fetch UniXNU
+        run: |
+          git clone --depth 1 https://github.com/UniXNU/UniXNU unixnu-src
+          git -C unixnu-src log --oneline -1
+
+      # The SoC layer is a feed, so it has to be fetched before the soc: config
+      # fragments and dts/sdm710.dtsi can resolve.
+      - name: Fetch the shared SoC layer
+        working-directory: unixnu-src
+        env:
+          UNIXNU_DEVICE: ${{ github.workspace }}/device
+        run: ./unixnu fetch sdm710
+
+      - name: Select the device
+        working-directory: unixnu-src
+        env:
+          UNIXNU_DEVICE: ${{ github.workspace }}/device
+        run: |
+          ./unixnu defconfig rmx1971_defconfig
+          echo '--- assembled configuration'
+          cat out/state.json 2>/dev/null || true
+
+      - name: Show the resolved profiles
+        working-directory: unixnu-src
+        env:
+          UNIXNU_DEVICE: ${{ github.workspace }}/device
+        run: |
+          ./unixnu status --json > status.json
+          cat status.json
+
+      - name: Compile the board device tree
+        working-directory: unixnu-src
+        run: |
+          # The same cpp+dtc step the payload uses: this proves the memory node,
+          # the eight /cpus nodes and the sdm710 include all resolve together.
+          # The include directory is located rather than assumed, because the
+          # feed checkout layout is the driver's business, not ours.
+          set -euo pipefail
+          inc=$(dirname "$(find . -name sdm710.dtsi | head -1)")
+          echo "soc dtsi directory: $inc"
+          dtc -I dts -O dtb -i "$inc" -o rmx1971.dtb ../device/dts/rmx1971.dts
+          dtc -I dtb -O dts rmx1971.dtb | sed -n '1,45p'
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rmx1971-port-check
+          if-no-files-found: warn
+          path: |
+            unixnu-src/status.json
+            unixnu-src/rmx1971.dtb

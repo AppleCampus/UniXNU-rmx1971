@@ -1,0 +1,97 @@
+/dts-v1/;
+// SPDX-License-Identifier: BSD-2-Clause-Patent
+/*
+ * Realme 5 Pro (RMX1971), Qualcomm SDM712 - board hardware description for
+ * UniXNU.
+ *
+ * UniXNU compiles this tree and derives the Apple device tree (kernel.macho.adt)
+ * from it:
+ *   - the memory node becomes /chosen/dram-base and /chosen/dram-size, and must
+ *     match [payload] dram_size of board.toml
+ *   - /cpus becomes the ADT /cpus, one node per enabled core, boot CPU first
+ *   - /psci becomes the ADT /psci
+ *   - each node carrying "unixnu,adt-name" is exported under the ADT /arm-io
+ * The Apple-side properties come from the OS profile and board.toml, not here.
+ *
+ * SDM712 is the same silicon as the sdm710 that sirius describes, so the SoC
+ * dtsi of the shared layer is included as-is; what follows is the part that is
+ * specific to this handset: its DRAM window and its eight cores.
+ */
+
+/include/ "sdm710.dtsi"
+
+/ {
+	model = "Realme 5 Pro";
+	compatible = "realme,rmx1971", "qcom,sdm710";
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	/*
+	 * The DRAM window ios-sweet already hands XNU on this handset, so it is
+	 * the one known to work with the prelinked 21H461 kernelcache.
+	 *
+	 * It cannot start at 0x80000000 like sirius: the low 3.97 GiB is carved up
+	 * by the ABL and the reserved-memory nodes (the low bank is only usable to
+	 * 0xB8300000, and the firmware regions sit in between), so no contiguous
+	 * range of useful size exists below the four GiB line. Above it the second
+	 * half of LPDDR4 is clean: 0x1_0000_0000 for 0x7E2C_0000 bytes = 1.97 GiB.
+	 * Must equal [payload] dram_size of board.toml.
+	 */
+	memory@100000000 {
+		device_type = "memory";
+		reg = <0x1 0x00000000 0x0 0x7e2c0000>;
+	};
+};
+
+/*
+ * Eight Kryo 360 cores, Affinity1 0x000..0x700. cpu0-5 are Cortex-A55 (Silver),
+ * cpu6-7 are Cortex-A75 (Gold); the boot CPU is cpu0. The order of the children
+ * is the order of the ADT /cpus nodes -- ArmCpu numbers the cores by it, and the
+ * command line caps them with cpus=8.
+ *
+ * SDM712 raises the Gold cores from 2.2 to 2.3 GHz against SDM710; the topology,
+ * the GIC-500 PPIs and the 19.2 MHz counter are identical, which is why
+ * armcpu-timer-intid=19 in the kernel arguments applies here unchanged.
+ */
+&cpus {
+	cpu@0 {
+		device_type = "cpu";
+		compatible = "arm,cortex-a55";
+		reg = <0x0>;
+	};
+	cpu@100 {
+		device_type = "cpu";
+		compatible = "arm,cortex-a55";
+		reg = <0x100>;
+	};
+	cpu@200 {
+		device_type = "cpu";
+		compatible = "arm,cortex-a55";
+		reg = <0x200>;
+	};
+	cpu@300 {
+		device_type = "cpu";
+		compatible = "arm,cortex-a55";
+		reg = <0x300>;
+	};
+	cpu@400 {
+		device_type = "cpu";
+		compatible = "arm,cortex-a55";
+		reg = <0x400>;
+	};
+	cpu@500 {
+		device_type = "cpu";
+		compatible = "arm,cortex-a55";
+		reg = <0x500>;
+	};
+	cpu@600 {
+		device_type = "cpu";
+		compatible = "arm,cortex-a75";
+		reg = <0x600>;
+	};
+	cpu@700 {
+		device_type = "cpu";
+		compatible = "arm,cortex-a75";
+		reg = <0x700>;
+	};
+};

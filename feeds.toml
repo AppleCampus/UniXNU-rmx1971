@@ -1,0 +1,12 @@
+# Extra sources of the rmx1971 port. UniXNU components resolve from the component
+# catalog; this file pins the shared SoC layer that board.toml selects as
+# soc_source.
+#
+# SDM712 shares the platform description with SDM710 -- GIC-500, the 19.2 MHz
+# counter, PSCI, the timer INTID -- so the same repository serves both. Bump the
+# commit after reviewing a change there; unixnu.lock records what a fetch produced.
+[[source]]
+name = "sdm710"
+kind = "soc"
+git = "https://github.com/57UU/UniXNU-sdm710-common"
+commit = "9b997c978e954c7c1d2fa7ab07c10981676dd0da"

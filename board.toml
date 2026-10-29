@@ -1,0 +1,128 @@
+# Board description of the Realme 5 Pro (RMX1971, SDM712), read by the UniXNU
+# build driver. Format 2: the ARM64, SoC, OS and device layers merge and this
+# file states only what the board changes.
+#
+# The SoC layer is sdm710: SDM712 is the same die as SDM710 with a 100 MHz
+# higher big-core clock (2.3 vs 2.2 GHz) and the same 2x Cortex-A75 + 6x
+# Cortex-A55, GIC-500, 19.2 MHz counter, PM660/PM660L and X15 modem, so every
+# platform fact of the shared layer applies unchanged. Nothing here emulates or
+# downclocks anything; the only 712-specific item is the top CPU OPP, which is a
+# table entry in the clock driver and not part of the boot path.
+#
+# Bring-up stage: XNU is started by this handset's own U-Boot. The ABL boots
+# boot.img, U-Boot brings up UEFI, the EFI boot manager finds
+# \EFI\BOOT\BOOTAA64.EFI on the payload volume and runs UniXNU.efi there.
+# DarwinBoot.efi travels in the payload volume as a [[driver]] of unixnu.toml.
+#
+# Where the two boards differ, and what is therefore still open on this port:
+#   storage  - sirius is eMMC on SDCC1; RMX1971 is UFS (6 LUNs, 4 KiB blocks).
+#              The payload volume lives on the vm-system partition, and the
+#              XNU-side block driver still has to become a UFS one.
+#   display  - the framebuffer the ABL leaves behind is 1080x2340x4 at
+#              0x9c000000; the same boot-progress panel applies.
+#   panel/etc - see dts/rmx1971.dts.
+
+schema_version = 2
+
+[board]
+name = "rmx1971"
+soc = "SDM710"
+soc_source = "sdm710"
+os_profile = "ipados-17.7.11-21H461"
+description = "Realme 5 Pro"
+kit = "rmx1971"
+
+# ArmDTPlatform drives the platform expert from dts/rmx1971.dts. ArmCpu is the
+# board's copy in drivers/ArmCpu (non-Apple timer INTID, /cpus probe counters,
+# sheng-smp). DarwinBoot is the loader the payload starts. XnuPrelink is the
+# prelink kit the OS profile names.
+[components]
+include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink", "DarwinBoot"]
+
+# The unchanged iPad7,1 iPadOS 17.7.11 restore image -- the same target the
+# sirius and fajita ports use. SDM710/712 (Kryo 360, Cortex-A75/A55) is ARMv8.2
+# without pointer authentication, so it runs arm64 userlands only.
+[ipsw]
+url = "https://updates.cdn-apple.com/2025SpringFCS/fullrestores/122-77166/DCA6CFE8-90E9-4B92-880D-3DE171798E40/iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw"
+product = "iPad7,1"
+version = "17.7.11"
+build = "21H461"
+device_class = "j120ap"
+chip_id = 0x8011
+board_id = 12
+fetch = ["KernelCache", "DeviceTree", "StaticTrustCache", "Cryptex1,SystemTrustCache"]
+
+# The kernel step runs on macOS + Xcode; the package, payload and boot image
+# steps run anywhere. defconfig overrides the fragments in order.
+#
+# archives stays empty until the board's own kit sources exist here: sirius
+# builds build-sirius-probes.py, build-boot-progress.py, build-sirius-pmgr.py and
+# build-sirius-emmc.py, and the UFS counterpart of the last one is exactly what
+# this port has to write. An empty list keeps `unixnu status` honest about that
+# instead of pointing at scripts that are not ported yet.
+[kernel]
+defconfig = "rmx1971_defconfig"
+config_fragments = ["arch:configs/common.config", "soc:configs/sdm710.config", "os:configs/ipados.config"]
+patch_series = ["arch:patches/xnu/series", "soc:patches/xnu/series", "os:patches/xnu/series"]
+archives = []
+
+[device_tree]
+source = "device:dts/rmx1971.dts"
+include_dirs = ["soc:dts"]
+
+# userdata of LUN0, read from the device's own GPT: entry 14, LBA 0x198900 with
+# 0xd11ef3 blocks of 4096 bytes. Note the block size -- this UFS reports 4 KiB
+# logical blocks, where sirius' eMMC uses 512-byte sectors, so every LBA below is
+# in 4 KiB units and lba_bytes says so.
+[userdata]
+first_lba = 0x198900
+last_lba = 0xeaa7f2
+lba_bytes = 4096
+windows = [
+  { name = "OS", component = "OS" },
+  { name = "SystemOS", component = "Cryptex1,SystemOS" },
+]
+
+[payload]
+volume = "RMX1971ESP"
+size_mib = 128
+loader = "payload"
+title = "rmx1971 first boot: XNU to console"
+# The window dts/rmx1971.dts declares, and the one ios-sweet already boots XNU
+# with on this handset: the four GiB line is where the usable second half of
+# LPDDR4 starts, 0x1_0000_0000 + 0x7E2C_0000 = 1.97 GiB.
+dram_size = "0x7e2c0000"
+panic_screen = true
+kernel_args = [
+  "debug=0x14e",
+  "kt_fixed_zones=120",
+  "ml-timeout-lock-panic-scale=40",
+  "-no_slto_panic",
+  "boot-progress=2",
+  "sheng-smp=1",
+  "cpus=8",
+  "armcpu-self-ipi=1",
+  "armcpu-timer-intid=19",
+  "sheng-pmgr=2",
+  "amfi_get_out_of_my_way=1",
+]
+
+[payload.adt]
+chip_id = "8011"
+root_match_volume_uuid = "04769D26-2CA0-4825-B443-E2E5F88300F2"
+
+[adt.product.string]
+model = "realme,rmx1971"
+
+[adt.defaults.u32]
+sleep-disabled = 1
+
+[adt.buttons.string]
+compatible = "buttons"
+device_type = "buttons"
+
+[adt.buttons.strings]
+button-names = ["hold", "voldown", "volup"]
+
+[adt.buttons.u32]
+home-button-type = 2
