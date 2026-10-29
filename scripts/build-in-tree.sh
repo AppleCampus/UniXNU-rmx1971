@@ -164,7 +164,9 @@ echo "== defconfig"
 # kconfig resolves a fragment by basename through `find board -name <target>`,
 # so the path must not be passed here.
 make -s O="$OUT_ABS" qcom_defconfig qcom-phone.config rmx1971.config
-require_config "$OUT_ABS" EFI_PARTITION CMD_PART CMD_FAT FS_FAT CMD_FS_GENERIC
+require_config "$OUT_ABS" EFI_PARTITION CMD_PART CMD_FAT FS_FAT CMD_FS_GENERIC \
+	FASTBOOT_FLASH_BLOCK CMD_FASTBOOT USB_DWC3_GADGET FASTBOOT_OEM_RUN \
+	FASTBOOT_CMD_OEM_CONSOLE CONSOLE_RECORD
 
 echo "== build"
 build "$OUT_ABS"
@@ -226,3 +228,4 @@ build_env_variant() { # $1 = variant name, $2 = env file, $3 = boot image name
 
 build_env_variant probe board/realme/rmx1971/rmx1971-probe.env boot-probe.img
 build_env_variant diag  board/realme/rmx1971/rmx1971-diag.env  boot-diag.img
+build_env_variant usb   board/realme/rmx1971/rmx1971-usb.env   boot-usb.img
