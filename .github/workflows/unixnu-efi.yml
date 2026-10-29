@@ -146,7 +146,11 @@ jobs:
           export PATH="$EDK_TOOLS_PATH/BinWrappers/PosixLike:$EDK_TOOLS_PATH/Source/C/bin:$PATH"
           cd device
           build -p DarwinBootPkg/DarwinBoot.dsc -a AARCH64 -b DEBUG -t CLANGPDB -n 4
-          efi=$(find Build -name 'DarwinBoot.efi' | head -1)
+          # edk2 writes its output under <workspace>/build (lower case) when the DSC
+          # names its own OUTPUT_DIRECTORY, so search for the file rather than assume
+          # a path. Getting this wrong looks exactly like a build that produced nothing.
+          efi=$(find . -iname 'DarwinBoot.efi' -type f | head -1)
+          test -n "$efi"
           ls -l "$efi"
           python3 scripts/check-pe.py "$efi"
 
@@ -215,7 +219,7 @@ jobs:
           python3 device/scripts/make-uboot-payload.py \
             --payload "$payload" \
             --unixnu-efi unixnu-src/package/Build/Out/AARCH64-DEBUG/UniXNU.efi \
-            --darwinboot-efi "$(find device/Build -name DarwinBoot.efi | head -1)" \
+            --darwinboot-efi "$(find device -iname 'DarwinBoot.efi' -type f | head -1)" \
             --output rmx1971-payload.img
 
       - name: Report
