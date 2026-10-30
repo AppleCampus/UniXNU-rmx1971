@@ -49,7 +49,11 @@ for _ in range(count):
     offset += length
 if deployment != (2, 0x110000):
     raise SystemExit(f'Unexpected platform deployment {deployment}')
-archive = OUT / 'libRmx1971PlatformPower.a'
+# Both the directory and the archive name come from the UniXNU baseline script,
+# which looks for build/sheng-platform-power/libShengPlatformPower.a by literal path
+# and fails with "test -f $PMGR_ARCHIVE failed" if it is not there. Renaming them
+# after the board breaks the kernel link; the object file inside is ours.
+archive = OUT / 'libShengPlatformPower.a'
 archive.unlink(missing_ok=True)
 subprocess.run(['xcrun', 'ar', 'rcs', archive, obj], check=True)
 print('rmx1971 pmgr: -Werror build and actual ARM64/iOS 17 object audit passed')
