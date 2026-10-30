@@ -51,7 +51,7 @@ next_action = [
 evidence = [
   { kind = "source", reference = "board.toml", result = "Format 2 descriptor: soc_source sdm710, os_profile ipados-17.7.11-21H461, four components." },
   { kind = "source", reference = "dts/rmx1971.dts", result = "Memory window and eight CPU nodes over sdm710.dtsi; dtc output carries model, compatible and timebase-frequency 0x124f800." },
-  { kind = "host", reference = "https://github.com/AppleCampus/rmx1971-unixnu/actions/runs/41022700761", result = "Kernel, prelink and all kit archives build; the job also compiles the board device tree.", command = "./unixnu build kernel --defconfig rmx1971_defconfig --device AppleCampus/rmx1971-unixnu", revision = "14a9ae187e345111e85a24674cbad57d0020ccfd" },
+  { kind = "host", reference = "https://github.com/AppleCampus/UniXNU-rmx1971/actions/runs/41022700761", result = "Kernel, prelink and all kit archives build; the job also compiles the board device tree.", command = "./unixnu build kernel --defconfig rmx1971_defconfig --device AppleCampus/UniXNU-rmx1971", revision = "14a9ae187e345111e85a24674cbad57d0020ccfd" },
 ]
 
 [[area]]
@@ -198,7 +198,7 @@ next_action = [
 ]
 evidence = [
   { kind = "source", reference = "patches/xnu/sweet-ufs-root.patch", result = "Read-only UFS block driver, conf/files entry, IOKitBSDInit probe and the vfs_mountroot probe that assigns rootdev." },
-  { kind = "host", reference = "https://github.com/AppleCampus/rmx1971-unixnu/actions/runs/41022700761", result = "Kernel builds with the driver; the assembled payload's kernel.macho carries the driver strings and both probes.", command = "./unixnu build kernel --defconfig rmx1971_defconfig --device AppleCampus/rmx1971-unixnu", revision = "14a9ae187e345111e85a24674cbad57d0020ccfd" },
+  { kind = "host", reference = "https://github.com/AppleCampus/UniXNU-rmx1971/actions/runs/41022700761", result = "Kernel builds with the driver; the assembled payload's kernel.macho carries the driver strings and both probes.", command = "./unixnu build kernel --defconfig rmx1971_defconfig --device AppleCampus/UniXNU-rmx1971", revision = "14a9ae187e345111e85a24674cbad57d0020ccfd" },
 ]
 
 [[area]]

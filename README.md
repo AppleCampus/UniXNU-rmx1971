@@ -1,8 +1,8 @@
 # UniXNU for the Realme 5 Pro (rmx1971)
 
-[![U-Boot](https://github.com/AppleCampus/rmx1971-unixnu/actions/workflows/uboot.yml/badge.svg)](https://github.com/AppleCampus/rmx1971-unixnu/actions/workflows/uboot.yml)
-[![kernel](https://github.com/AppleCampus/rmx1971-unixnu/actions/workflows/unixnu-kernel.yml/badge.svg)](https://github.com/AppleCampus/rmx1971-unixnu/actions/workflows/unixnu-kernel.yml)
-[![payload](https://github.com/AppleCampus/rmx1971-unixnu/actions/workflows/unixnu-efi.yml/badge.svg)](https://github.com/AppleCampus/rmx1971-unixnu/actions/workflows/unixnu-efi.yml)
+[![U-Boot](https://github.com/AppleCampus/UniXNU-rmx1971/actions/workflows/uboot.yml/badge.svg)](https://github.com/AppleCampus/UniXNU-rmx1971/actions/workflows/uboot.yml)
+[![kernel](https://github.com/AppleCampus/UniXNU-rmx1971/actions/workflows/unixnu-kernel.yml/badge.svg)](https://github.com/AppleCampus/UniXNU-rmx1971/actions/workflows/unixnu-kernel.yml)
+[![payload](https://github.com/AppleCampus/UniXNU-rmx1971/actions/workflows/unixnu-efi.yml/badge.svg)](https://github.com/AppleCampus/UniXNU-rmx1971/actions/workflows/unixnu-efi.yml)
 
 [UniXNU](https://github.com/UniXNU/UniXNU) device support for the **Realme 5 Pro**
 (RMX1971, Qualcomm Snapdragon 712 / SDM712): bringing the source XNU kernel and
@@ -18,7 +18,7 @@ the same die with a 100 MHz higher big-core clock.
 | --- | --- |
 | [UniXNU](https://github.com/UniXNU/UniXNU) | build driver, kernel patch series, kits, documentation |
 | [UniXNU-sdm710-common](https://github.com/57UU/UniXNU-sdm710-common) | shared SDM710/712 SoC layer: GIC-500, 19.2 MHz counter, PSCI |
-| **rmx1971-unixnu** (this) | board description, device tree, U-Boot firmware, UFS root driver, payload assembly |
+| **UniXNU-rmx1971** (this) | board description, device tree, U-Boot firmware, UFS root driver, payload assembly |
 
 Three layers, all of them working on hardware:
 

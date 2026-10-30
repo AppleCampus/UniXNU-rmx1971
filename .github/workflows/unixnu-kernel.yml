@@ -6,7 +6,7 @@ on:
       device_repository:
         description: Device repository as owner/name
         required: true
-        default: AppleCampus/rmx1971-unixnu
+        default: AppleCampus/UniXNU-rmx1971
       device_ref:
         description: Device repository ref
         required: true
