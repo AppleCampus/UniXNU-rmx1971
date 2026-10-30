@@ -1,11 +1,10 @@
 # Bring-up record
 
-Device observations for the RMX1971 port, in the order they were made. Each entry
-names the image that produced it, so a claim can be re-checked by flashing the
-same bytes. The panel dumps are transcribed from photographs of the screen: this
-handset has no UART, so the framebuffer is the only log transport there is.
+Raw device observations behind [`porting.toml`](../porting.toml): what was flashed,
+what the panel printed, and what was concluded from it. Panel dumps are
+transcribed from photographs because a retail RMX1971 has no UART.
 
-Image hashes are SHA-256 of the file that was written with `fastboot flash`.
+Image hashes are SHA-256 of the file written with `fastboot flash`.
 
 ## 2026-10-29 — U-Boot reaches its prompt
 
