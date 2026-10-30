@@ -50,7 +50,7 @@ diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
 diff --git a/bsd/vfs/vfs_subr.c b/bsd/vfs/vfs_subr.c
 --- a/bsd/vfs/vfs_subr.c
 +++ b/bsd/vfs/vfs_subr.c
-@@ -1220,6 +1220,39 @@
+@@ -1220,6 +1220,44 @@
  	vnode_t bdevvp_rootvp;
  
  	/*
@@ -60,27 +60,32 @@ diff --git a/bsd/vfs/vfs_subr.c b/bsd/vfs/vfs_subr.c
 +	 * function being entered every five seconds with no line from either the driver or
 +	 * the panic path hooked into IOKitBSDInit, and rootdev stayed NODEV -- so bdevvp()
 +	 * failed here before a single filesystem was asked. Probing on this path instead is
-+	 * provably reachable, and assigning rootdev turns the retry below into a real mount
-+	 * attempt that can report a filesystem-level error.
++	 * provably reachable, and assigning rootdev turns the retry in bsd_init into a real
++	 * mount attempt that can report a filesystem-level error.
 +	 *
-+	 * The driver is read-only and caches its own state, so repeated entries are free.
++	 * The driver caches its own state, so repeated entries are free. The boot progress
++	 * hook is weak because the bootstrap pass of the XNU build links without the kit
++	 * archives, and a strong reference would turn that expected failure into a real one.
 +	 */
 +	{
 +		extern int sweet_ufs_rootdev(dev_t *dev);
-+		extern void boot_progress_stage(const char *text);
++		extern void boot_progress_stage(const char *text) __attribute__((weak));
 +		static int ufs_state = -2;      /* -2: not tried yet */
 +		static dev_t ufs_dev = 0;
 +
 +		if (ufs_state == -2) {
 +			ufs_state = sweet_ufs_rootdev(&ufs_dev);
-+		printf("RMX1971 UFS: driver init -> %d, dev 0x%x, rootdev 0x%x\n",
-+		    ufs_state, (unsigned)ufs_dev, (unsigned)rootdev);
++			printf("RMX1971 UFS: driver init -> %d, dev 0x%x, rootdev 0x%x\n",
++			    ufs_state, (unsigned)ufs_dev, (unsigned)rootdev);
 +		}
 +		if (ufs_state == 0 && rootdev == NODEV) {
++			char stage[64];
++
 +			rootdev = ufs_dev;
-+			{
-+				char stage[64];
-+				snprintf(stage, sizeof(stage), "UFS rootdev <- 0x%x", (unsigned)rootdev);
++			printf("RMX1971 UFS: rootdev <- 0x%x\n", (unsigned)rootdev);
++			if (boot_progress_stage != NULL) {
++				snprintf(stage, sizeof(stage), "UFS rootdev <- 0x%x",
++				    (unsigned)rootdev);
 +				boot_progress_stage(stage);
 +			}
 +		}
@@ -94,7 +99,7 @@ diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/sweet_ufs.c
-@@ -0,0 +1,561 @@
+@@ -0,0 +1,560 @@
 +/*
 + * Internal UFS root device for the Realme 5 Pro (RMX1971, codename "sweet"), read-only.
 + *
@@ -655,4 +660,3 @@ new file mode 100644
 +	}
 +	return 0;
 +}
-+#endif /* ARM64_BOARD_CONFIG_SWEET */
