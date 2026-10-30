@@ -168,7 +168,7 @@ extern volatile unsigned boot_process_attempts __attribute__((weak_import));
 extern volatile unsigned boot_process_busy __attribute__((weak_import));
 static unsigned process_worker_status,process_capture_age;
 extern volatile uint32_t __attribute__((weak_import)) armcpu_smp_requested,armcpu_smp_running,armcpu_smp_conduit,armcpu_boot_mpidr;
-extern volatile uint32_t __attribute__((weak_import)) sirius_usb_step,sirius_usb_gcc,sirius_usb_smmu,sirius_usb_dwc,sirius_usb_dsts,sirius_usb_clk,sirius_usb_pll;
+extern volatile uint32_t __attribute__((weak_import)) rmx1971_usb_step,rmx1971_usb_gcc,rmx1971_usb_smmu,rmx1971_usb_dwc,rmx1971_usb_dsts,rmx1971_usb_clk,rmx1971_usb_pll;
 extern volatile uint32_t __attribute__((weak_import)) armcpu_smp_step[8],armcpu_smp_seen_mpidr[8],armcpu_smp_fail[8],armcpu_smp_sys[8][5],armcpu_boot_sys[5],armcpu_gic_stride,armcpu_gic_typer_probe[2];
 extern volatile int32_t __attribute__((weak_import)) armcpu_smp_psci_rc[8];
 extern volatile uint32_t __attribute__((weak_import)) armcpu_irq_phase,armcpu_irq_id,armcpu_quiesce_calls,armcpu_halt_calls;
@@ -385,27 +385,27 @@ static void draw(unsigned now) {
       snprintf(b,sizeof(b),"GIC stride=%x last redistributor read: offset=%x typer.lo=%x",
         armcpu_gic_stride,armcpu_gic_typer_probe[0],armcpu_gic_typer_probe[1]);
       line(30,b,0xff00ff88);
-      // USB console progress (kits/sirius/sirius_usb.c). The console section above is an early
+      // USB console progress (the shared layer's USB console kit). The console section above is an early
       // snapshot, so these live counters are the evidence: step walks the bring-up, txev/rxev are
       // the last bulk completion event words a non-zero value proves transfers execute, chars counts
       // bytes submitted on bulk IN, echo counts host round trips, poll counts the driver's polls.
       snprintf(b,sizeof(b),"USB step=%u txev=%08x rxev=%08x chars=%u echo=%u poll=%u",
-        sirius_usb_step,sirius_usb_gcc,sirius_usb_clk,sirius_usb_smmu,sirius_usb_pll,sirius_usb_dwc);
+        rmx1971_usb_step,rmx1971_usb_gcc,rmx1971_usb_clk,rmx1971_usb_smmu,rmx1971_usb_pll,rmx1971_usb_dwc);
       line(29,b,0xff00ff88);
     }
     {
-      // eMMC (SDCC1 at 0x7c4000) probe from kits/sirius/sirius_emmc.c: step 1 means the register
+      // eMMC (SDCC1 at 0x7c4000) probe from the shared layer's eMMC kit: step 1 means the register
       // window mapped, 2 that the SDHCI registers were read, 3 that the card reports inserted and
       // ready; halt lists the GCC branches still gated (bit0 apps, bit1 ahb, bit2 ice, bit3 bus).
-      extern volatile unsigned int sirius_emmc_step, sirius_emmc_version, sirius_emmc_caps,
-        sirius_emmc_state, sirius_emmc_clock, sirius_emmc_power, sirius_emmc_halts;
+      extern volatile unsigned int rmx1971_emmc_step, rmx1971_emmc_version, rmx1971_emmc_caps,
+        rmx1971_emmc_state, rmx1971_emmc_clock, rmx1971_emmc_power, rmx1971_emmc_halts;
       snprintf(b,sizeof(b),"EMMC step=%u ver=%04x caps=%08x st=%08x clk=%04x pwr=%02x h=%x",
-        sirius_emmc_step,sirius_emmc_version,sirius_emmc_caps,sirius_emmc_state,
-        sirius_emmc_clock,sirius_emmc_power,sirius_emmc_halts);
+        rmx1971_emmc_step,rmx1971_emmc_version,rmx1971_emmc_caps,rmx1971_emmc_state,
+        rmx1971_emmc_clock,rmx1971_emmc_power,rmx1971_emmc_halts);
       line(30,b,0xff00ddff);
     }
     {
-      // sirius bring-up: why the native ArmCpu declines the /cpus nubs (AppleARMCPU panic).
+      // bring-up note: why the native ArmCpu declines the /cpus nubs (AppleARMCPU panic).
       // Kernel CPU topology view of the eight MPIDR affinities, the ArmDTPlatform nub counters,
       // and the ArmCpu probe decision counters (the override in the device repository).
       extern int ml_get_cpu_number (unsigned);
@@ -582,8 +582,8 @@ static void refresh(unsigned now) {
   // The USB console poller runs off this refresh: it is the one kernel path that keeps being
   // scheduled even when a freshly started thread never gets a turn.
   {
-    extern void sirius_usb_poll(void);
-    sirius_usb_poll();
+    extern void rmx1971_usb_poll(void);
+    rmx1971_usb_poll();
   }
   if (resume_after && boot_progress_display_owned && !display.bound && display.frame &&
       now >= __atomic_load_n(&last_scanout_at,__ATOMIC_RELAXED)+resume_after) {
@@ -686,8 +686,8 @@ void boot_progress_putc(char c) {
   // The kernel console sends every character here while this panel is active (serial_console.c
   // returns before its own mirror hook), so the USB console mirror is fed from this path too.
   {
-    extern void sirius_usb_log_char(char);
-    sirius_usb_log_char(c);
+    extern void rmx1971_usb_log_char(char);
+    rmx1971_usb_log_char(c);
   }
   if (!enabled || !take()) return;
   bp_char(&state,c);

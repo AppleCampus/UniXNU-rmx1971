@@ -34,11 +34,10 @@ ABL  ->  boot.img  =  U-Boot 2026.07
                              `->  XNU  (xnu-10063.141.1, iPadOS 17.7.11 21H461)
 ```
 
-U-Boot stands in for Mu-Silicium: on this SoC family it is the cheapest route to a
-UEFI environment, and [Xiaomi Mi 8 SE](https://github.com/57UU/UniXNU-sirius)
-(sirius, SDM710) proved the shape on the same silicon — `boot.img` = U-Boot, a FAT
-payload volume on a spare partition, `UniXNU.efi` started from
-`\EFI\BOOT\BOOTAA64.EFI`, then `DarwinBoot`, then XNU.
+U-Boot provides the UEFI environment. Porting a full EDK2 platform for this SoC
+would be a second firmware project; booting the board's own U-Boot instead gives
+the EFI boot manager, block I/O over the UFS partitions and a framebuffer console,
+while the board's own clock and storage code stays in charge of the hardware.
 
 ## Status
 
@@ -88,9 +87,9 @@ command, so `fastboot boot` transfers the image and then fails with
 | `dts/sdm710-realme-rmx1971.dts` | U-Boot's device tree: `/memory`, root-level `framebuffer@9c000000` |
 | `dts/rmx1971.dts` | XNU's device tree: memory window and eight `/cpus` nodes over `sdm710.dtsi` |
 | `board.toml` | the UniXNU device repository descriptor (format 2) |
-| `configs/rmx1971_defconfig` | kernel configuration, inherited from sirius because the SoC half is identical |
+| `configs/rmx1971_defconfig` | kernel configuration: the shared sdm710 first-console set, unchanged |
 | `feeds.toml` | pins `UniXNU-sdm710-common` |
-| `package/` | the kits carried over from sirius: boot-progress display, fault probe, PMGR nub, inert stubs |
+| `package/` | kernel-side kits: boot-progress display, fault probe, PMGR nub, inert stubs |
 | `drivers/ArmCpu`, `drivers/DarwinBoot` | the CPU/GIC/timer driver and XNU's loader |
 | `patches/uboot/` | one patch: the missing UFS clock gate |
 | `patches/xnu/` | `sweet-ufs-root.patch`: a read-only block driver for the internal UFS |
@@ -117,7 +116,7 @@ scripts/overlay.sh uboot
 scripts/build-in-tree.sh uboot out      # -> out/boot.img
 ```
 
-The U-Boot recipe follows sirius's, the only known-good one for this SoC:
+The U-Boot recipe this SoC needs:
 
 ```sh
 make O=out qcom_defconfig qcom-phone.config board/realme/rmx1971/rmx1971.config
@@ -272,7 +271,7 @@ define the `/memory` node itself: `sdm670.dtsi` ships `memory@80000000` with
 size, but `qcom_parse_memory()` looks up the literal path `/memory` and treats a
 zero size as `-ENODATA`.
 
-The framebuffer node also had to move out of `/chosen`, where sirius keeps it.
+The framebuffer node also had to move out of `/chosen`, where the shared device tree keeps it.
 `dm_scan_fdt()` walks the root's children and recurses only into simple-bus
 nodes; `/chosen` has no driver, so a framebuffer nested there is never bound,
 `vidconsole` never appears, and on a UART-less handset that is a board which runs
@@ -384,16 +383,18 @@ the repository because the ABL needs a table it can match by `qcom,msm-id`;
 `androidboot.dtb_idx` is *not* passed — the ABL decides. It contains no serial
 numbers or calibration data.
 
-## Differences from sirius
+## Board specifics
 
-- Panel is 1080x2340 (sirius: 1080x2240), still drawn by simple-framebuffer.
-- **UFS instead of eMMC.** This is the largest divergence: sirius's native storage
-  kit drives SDCC1, and RMX1971 has none. Its shared SoC layer still applies
-  unchanged — same GIC-500, same 19.2 MHz counter, same PSCI — which is why
-  `UniXNU-sdm710-common` is used as-is and only the storage driver differs.
-- SDM712 runs the big cores at 2.3 GHz against SDM710's 2.2, and the GPU at
-  610 MHz against 585; the die and the platform description are the same.
-- Volume keys stay on PM660L GPIO 7 until this board's stock DTB is checked.
+The wiring that makes this board what it is, all measured on the handset:
+
+- **Panel**: 1080x2340, 32-bit `a8r8g8b8`, at `0x9c000000`; drawn by
+  simple-framebuffer from the splash the ABL leaves behind.
+- **Storage**: UFS at `0x1d84000` — six LUNs, 4096-byte blocks, no eMMC in use.
+  Every LBA in this document is in those 4 KiB units.
+- **Clocks**: 19.2 MHz Qualcomm XO counter, virtual timer INTID 19; big cores at
+  2.3 GHz, GPU at 610 MHz.
+- **Keys**: power through the PM660 PON block; volume up/down are assumed to sit
+  on PM660L GPIO 7, which the stock DTB has not confirmed yet.
 
 ## Next
 

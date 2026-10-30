@@ -1,1 +1,1 @@
-# The sirius kit: dormant probe stubs the DEVELOPMENT kernel link needs.
+# The board kit: what the kernel link needs, and what this port leaves inert.

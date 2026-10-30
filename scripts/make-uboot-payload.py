@@ -14,7 +14,7 @@ whole chain:
   \EFI\UniXNU\Payloads\kernel.macho     the prelinked kernel
   \EFI\UniXNU\Payloads\kernel.macho.adt the device tree UniXNU hands to XNU
 
-Two edits are made to the kernel on the way in, both carried over from the sirius port:
+Two edits are made to the kernel on the way in, both required by this board:
 
   * the entry probe (stage bars on the frame buffer), patched by the tree's
     scripts/patch-xnu-entry-probe.py with --no-reset. board.toml sets panic_screen = false

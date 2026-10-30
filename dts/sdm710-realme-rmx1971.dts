@@ -3,7 +3,7 @@
  * Derived from sdm710-xiaomi-sirius.dts of 57UU/u-boot (sirius/v2.0), itself
  * ported from the postmarketOS u-boot branch that adds SDM710. Same SoC family,
  * so the PMIC, clock and reserved-memory blocks are shared; what differs is the
- * panel geometry, the storage (UFS here, eMMC on sirius) and the IDs ABL checks.
+ * panel geometry, the storage (UFS, not eMMC) and the IDs the ABL checks.
  *
  * Identity values come from this handset's own stock DTB
  * (firmware/stock-appended-dtbs.bin, every entry: msm-id <0x168 0 0x189 0>,
@@ -74,8 +74,8 @@
 	};
 
 	/*
-	 * The framebuffer stays at the root, not under /chosen where the sirius
-	 * DTS puts it. Driver model walks the children of the root node and
+	 * The framebuffer stays at the root, not under /chosen where the shared
+	 * board trees put it. Driver model walks the children of the root node and
 	 * recurses only into nodes bound as simple-bus (dm_scan_fdt_node() ->
 	 * simple_bus_post_bind()), and /chosen has no driver: a framebuffer
 	 * nested under it is never bound, `vidconsole` never appears, and the

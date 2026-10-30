@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'build/sheng-platform-power'
 OUT.mkdir(parents=True, exist_ok=True)
 source = ROOT / 'kits/rmx1971/Rmx1971Pmgr.cpp'
-obj = OUT / 'SiriusPmgr.o'
+obj = OUT / 'Rmx1971Pmgr.o'
 record = json.loads((ROOT / 'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/iokit/DEVELOPMENT/IOPlatformExpert.cpo.json').read_text().strip().rstrip(','))
 command, index = [], 0
 arguments = record['arguments']
@@ -49,7 +49,7 @@ for _ in range(count):
     offset += length
 if deployment != (2, 0x110000):
     raise SystemExit(f'Unexpected platform deployment {deployment}')
-archive = OUT / 'libShengPlatformPower.a'
+archive = OUT / 'libRmx1971PlatformPower.a'
 archive.unlink(missing_ok=True)
 subprocess.run(['xcrun', 'ar', 'rcs', archive, obj], check=True)
 print('rmx1971 pmgr: -Werror build and actual ARM64/iOS 17 object audit passed')

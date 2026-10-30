@@ -3,15 +3,15 @@
 # Format 2: arm:configs/common.config, soc:configs/sdm710.config and os:configs/ipados.config
 # apply first, then this file overrides them.
 #
-# Inherited from the sirius port, which is the same SoC: ArmDTPlatform (the
+# Derived from the shared sdm710 first-console configuration: ArmDTPlatform (the
 # device-tree platform expert) and ArmCpu (the CPU/GIC/timer driver) drive the
 # board through the ADT generated from dts/rmx1971.dts. Nothing storage- or
-# display-related is enabled yet, because RMX1971 stores on UFS where sirius uses
-# eMMC and that driver does not exist here. The intended first result is the same
-# as sirius': XNU reaches its console and stops at the root device.
+# display-related is enabled yet, because this board stores on UFS and that
+# driver does not exist here. The intended first result is XNU reaching its
+# console and stopping at the root device.
 #
-# Kept byte-identical to the qualified sirius configuration on purpose: the SoC
-# half is identical, and diverging before the first hardware run would make it
+# Kept byte-identical to that qualified configuration on purpose: the SoC half is
+# identical, and diverging before the first hardware run would make it
 # impossible to tell a porting mistake from a tuning change.
 
 CONFIG_XNU_BUILD_ARCHIVES=y
@@ -31,7 +31,7 @@ CONFIG_XNU_DT_PANIC_REGION=y
 CONFIG_XNU_CRYPTO_BOOTSTRAP="prelinked"
 # The DEVELOPMENT kernel references native_legacy_display_probe() unconditionally
 # (offline-component-load-probes.patch); the dormant stub archive of
-# scripts/build-sirius-probes.py keeps the link closed (package/LegacyDisplayProbe.cpp).
+# scripts/build-rmx1971-probes.py keeps the link closed (package/LegacyDisplayProbe.cpp).
 CONFIG_XNU_EXTRA_LD_ARCHIVES="-Wl,-force_load,{tree}/build/rmx1971-probes/libRmx1971Probes.a"
 CONFIG_XNU_NATIVE_UFS=n
 CONFIG_XNU_NATIVE_AES=n
@@ -59,6 +59,6 @@ CONFIG_XNU_SOURCE_MOCKFS=n
 CONFIG_XNU_TRUST_CACHE_RUNTIME=y
 CONFIG_XNU_NATIVE_CS_HASH_CACHE=n
 
-# Compile the bsd_init call site of sheng-platform-power.patch so package/SiriusPmgr.cpp can
+# Compile the bsd_init call site of sheng-platform-power.patch so package/Rmx1971Pmgr.cpp can
 # advertise the ApplePMGRNub that AMFI looks for (the target kernelcache stays unmodified).
 CONFIG_XNU_SHENG_PMGR=1

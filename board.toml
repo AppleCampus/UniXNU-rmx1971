@@ -14,10 +14,10 @@
 # \EFI\BOOT\BOOTAA64.EFI on the payload volume and runs UniXNU.efi there.
 # DarwinBoot.efi travels in the payload volume as a [[driver]] of unixnu.toml.
 #
-# Where the two boards differ, and what is therefore still open on this port:
-#   storage  - sirius is eMMC on SDCC1; RMX1971 is UFS (6 LUNs, 4 KiB blocks).
-#              The payload volume lives on the vm-system partition, and the
-#              XNU-side block driver still has to become a UFS one.
+# What this board adds on top of the shared description:
+#   storage  - UFS at 0x1d84000, six LUNs of 4 KiB blocks; the XNU-side block
+#              driver for it lives in patches/xnu/. The payload volume sits on
+#              the vm-system partition.
 #   display  - the framebuffer the ABL leaves behind is 1080x2340x4 at
 #              0x9c000000; the same boot-progress panel applies.
 #   panel/etc - see dts/rmx1971.dts.
@@ -39,9 +39,9 @@ kit = "rmx1971"
 [components]
 include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink", "DarwinBoot"]
 
-# The unchanged iPad7,1 iPadOS 17.7.11 restore image -- the same target the
-# sirius and fajita ports use. SDM710/712 (Kryo 360, Cortex-A75/A55) is ARMv8.2
-# without pointer authentication, so it runs arm64 userlands only.
+# The unchanged iPad7,1 iPadOS 17.7.11 restore image the UniXNU iPadOS profile
+# ships. SDM710/712 (Kryo 360, Cortex-A75/A55) is ARMv8.2 without pointer
+# authentication, so it runs arm64 userlands only.
 [ipsw]
 url = "https://updates.cdn-apple.com/2025SpringFCS/fullrestores/122-77166/DCA6CFE8-90E9-4B92-880D-3DE171798E40/iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw"
 product = "iPad7,1"
@@ -55,18 +55,18 @@ fetch = ["KernelCache", "DeviceTree", "StaticTrustCache", "Cryptex1,SystemTrustC
 # The kernel step runs on macOS + Xcode; the package, payload and boot image
 # steps run anywhere. defconfig overrides the fragments in order.
 #
-# The kit archives, carried over from the sirius port:
+# The kit archives linked into this board's kernel:
 #   boot-progress - draws the kernel console on the framebuffer. Without it every
 #                   line goes to a serial port this handset does not have, so it
 #                   is the difference between a bring-up and a black screen.
 #   probes        - the dormant legacy-display probe the DEVELOPMENT kernel
 #                   references unconditionally; without it the link does not close.
 #   pmgr          - advertises the ApplePMGRNub that AMFI looks for (sheng-pmgr=2).
-# The two sirius kits that are *not* here are the hardware ones: sirius_usb.c is a
-# CDC-ACM console over DWC3 and sirius_emmc.c drives SDCC1. RMX1971 stores on UFS,
-# so their UFS counterpart is the actual work this port still owes; until it
-# exists, package/Rmx1971Stubs.c satisfies the symbols boot-progress weak-imports
-# so the diagnostic build stays inert instead of faulting on address zero.
+# The hardware kits are deliberately not linked. The shared layer's USB console
+# kit drives a CDC-ACM gadget and its eMMC kit drives SDCC1; this board has UFS
+# and no working USB gadget, so both are inert here. Until a UFS kit exists,
+# package/Rmx1971Stubs.c satisfies the symbols boot-progress weak-imports so the
+# diagnostic build stays inert instead of faulting on address zero.
 [kernel]
 defconfig = "rmx1971_defconfig"
 config_fragments = ["arch:configs/common.config", "soc:configs/sdm710.config", "os:configs/ipados.config"]
@@ -92,8 +92,8 @@ include_dirs = ["soc:dts"]
 
 # userdata of LUN0, read from the device's own GPT: entry 14, LBA 0x198900 with
 # 0xd11ef3 blocks of 4096 bytes. Note the block size -- this UFS reports 4 KiB
-# logical blocks, where sirius' eMMC uses 512-byte sectors, so every LBA below is
-# in 4 KiB units and lba_bytes says so.
+# logical blocks, where eMMC-backed boards use 512-byte sectors, so every LBA
+# below is in 4 KiB units and lba_bytes says so.
 [userdata]
 first_lba = 0x198900
 last_lba = 0xeaa7f2

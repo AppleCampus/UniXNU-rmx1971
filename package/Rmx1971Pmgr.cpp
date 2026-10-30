@@ -22,9 +22,9 @@ extern "C" void sheng_pmgr_run(void);
 
 // Bring-up evidence for the boot-progress panel and the UFS log: 0 nothing tried, 1 class absent,
 // 2 allocation failed, 3 published, 4 discovery check failed.
-volatile uint32_t sirius_pmgr_step;
-volatile uint32_t sirius_pmgr_class_size;
-volatile uint64_t sirius_pmgr_nub;
+volatile uint32_t rmx1971_pmgr_step;
+volatile uint32_t rmx1971_pmgr_class_size;
+volatile uint64_t rmx1971_pmgr_nub;
 
 static const OSMetaClass *nubMetaClass(void)
 {
@@ -43,7 +43,7 @@ extern "C" void sheng_pmgr_run(void)
   if (!PE_parse_boot_argn("sheng-pmgr", &mode, sizeof(mode)) || (mode == 0)) {
     return;
   }
-  sirius_pmgr_step = 1;
+  rmx1971_pmgr_step = 1;
   const OSMetaClass *meta = nubMetaClass();
   if (meta == nullptr) {
     // The prelinked kext may not have registered its classes yet at this point; load it explicitly
@@ -52,34 +52,34 @@ extern "C" void sheng_pmgr_run(void)
     meta = nubMetaClass();
   }
   if (meta == nullptr) {
-    IOLog("sirius-pmgr: ApplePMGRNub class absent\n");
+    IOLog("rmx1971-pmgr: ApplePMGRNub class absent\n");
     return;
   }
-  sirius_pmgr_class_size = meta->getClassSize();
+  rmx1971_pmgr_class_size = meta->getClassSize();
   IOService *nub = static_cast<IOService *>(meta->alloc());
   if (nub == nullptr) {
-    sirius_pmgr_step = 2;
-    IOLog("sirius-pmgr: ApplePMGRNub allocation failed\n");
+    rmx1971_pmgr_step = 2;
+    IOLog("rmx1971-pmgr: ApplePMGRNub allocation failed\n");
     return;
   }
   if (!nub->init()) {
-    sirius_pmgr_step = 2;
-    IOLog("sirius-pmgr: ApplePMGRNub init failed\n");
+    rmx1971_pmgr_step = 2;
+    IOLog("rmx1971-pmgr: ApplePMGRNub init failed\n");
     nub->release();
     return;
   }
   IOService *platform = IOService::getPlatform();
   if ((platform != nullptr) && !nub->attach(platform)) {
-    sirius_pmgr_step = 2;
-    IOLog("sirius-pmgr: ApplePMGRNub attach failed\n");
+    rmx1971_pmgr_step = 2;
+    IOLog("rmx1971-pmgr: ApplePMGRNub attach failed\n");
     nub->release();
     return;
   }
   // No provider is set: the field AMFI dereferences stays NULL, which is the path that returns 0
   // instead of reaching into Apple's PMGR object.
   nub->registerService(kIOServiceSynchronous);
-  sirius_pmgr_nub = reinterpret_cast<uint64_t>(nub);
-  sirius_pmgr_step = 3;
+  rmx1971_pmgr_nub = reinterpret_cast<uint64_t>(nub);
+  rmx1971_pmgr_step = 3;
   IOService *found = nullptr;
   OSDictionary *matching = IOService::serviceMatching("ApplePMGRNub");
   if (matching != nullptr) {
@@ -87,8 +87,8 @@ extern "C" void sheng_pmgr_run(void)
     found = IOService::waitForMatchingService(matching, 1000000);
     matching->release();
   }
-  sirius_pmgr_step = (found == nub) ? 4 : 3;
-  IOLog("sirius-pmgr: ApplePMGRNub size=%u nub=%p found=%p\n", sirius_pmgr_class_size, nub, found);
+  rmx1971_pmgr_step = (found == nub) ? 4 : 3;
+  IOLog("rmx1971-pmgr: ApplePMGRNub size=%u nub=%p found=%p\n", rmx1971_pmgr_class_size, nub, found);
   if (found != nullptr) {
     found->release();
   }

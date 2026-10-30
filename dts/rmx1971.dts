@@ -13,8 +13,8 @@
  *   - each node carrying "unixnu,adt-name" is exported under the ADT /arm-io
  * The Apple-side properties come from the OS profile and board.toml, not here.
  *
- * SDM712 is the same silicon as the sdm710 that sirius describes, so the SoC
- * dtsi of the shared layer is included as-is; what follows is the part that is
+ * SDM712 is the same silicon the sdm710 SoC dtsi describes, so that file is
+ * included as-is; what follows is the part that is
  * specific to this handset: its DRAM window and its eight cores.
  */
 
@@ -30,7 +30,7 @@
 	 * The DRAM window ios-sweet already hands XNU on this handset, so it is
 	 * the one known to work with the prelinked 21H461 kernelcache.
 	 *
-	 * It cannot start at 0x80000000 like sirius: the low 3.97 GiB is carved up
+	 * It cannot start at 0x80000000 like the lower half: the low 3.97 GiB is carved up
 	 * by the ABL and the reserved-memory nodes (the low bank is only usable to
 	 * 0xB8300000, and the firmware regions sit in between), so no contiguous
 	 * range of useful size exists below the four GiB line. Above it the second

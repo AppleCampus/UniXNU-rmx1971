@@ -21,13 +21,13 @@ paths = ["board.toml", "feeds.toml", "dts/**", "configs/**", ".github/**", "docs
 inputs = [
   "SoC: SDM710/712 (Kryo 360, 2x Cortex-A75 + 6x Cortex-A55), GIC-500 GICv3, 19.2 MHz Qualcomm XO counter, PSCI over SMC.",
   "DRAM: 4 GiB model, one contiguous window at 0x1_0000_0000 + 0x7e2c_0000 above the ABL reservations.",
-  "Target OS: the unchanged iPad7,1 iPadOS 17.7.11 (21H461) restore image, the same kernelcache as sirius.",
+  "Target OS: the unchanged iPad7,1 iPadOS 17.7.11 (21H461) restore image, the same kernelcache the UniXNU iPadOS profile ships.",
   "Shared SoC layer: UniXNU-sdm710-common, pinned in feeds.toml because SDM712 is the same die with a 100 MHz higher big-core clock.",
 ]
 configuration = [
   "board.toml is format 2 (schema_version = 2), selects soc_source = sdm710 and os_profile = ipados-17.7.11-21H461, and includes ArmDTPlatform, ArmCpu, XnuPrelink and DarwinBoot.",
   "dts/rmx1971.dts declares memory@100000000 (0x1_0000_0000 + 0x7e2c_0000) and the eight cores with their affinities, and includes sdm710.dtsi for the GIC, PSCI and counter.",
-  "configs/rmx1971_defconfig is inherited verbatim from sirius: the SoC half is identical and diverging before the first hardware run would make a porting error indistinguishable from a tuning change.",
+  "configs/rmx1971_defconfig starts from the shared sdm710 first-console configuration unchanged: the SoC half is identical, and diverging before the first hardware run would make a porting error indistinguishable from a tuning change.",
   "kernel.patch_series appends device:patches/xnu/series after the arch, SoC and OS series, so the board's own XNU change applies last.",
 ]
 procedure = [
@@ -167,7 +167,7 @@ status = "implemented"
 components = []
 paths = ["patches/xnu/**", "board.toml", "docs/bring-up.md"]
 inputs = [
-  "Storage: UFS (ufshc@1d84000, UFSHCI 2.1) with six LUNs and 4096-byte blocks; no eMMC, so sirius's SDCC1 kit does not apply.",
+  "Storage: UFS (ufshc@1d84000, UFSHCI 2.1) with six LUNs and 4096-byte blocks; no eMMC, so the shared layer's SDCC1 eMMC kit does not apply.",
   "The host is left enabled with the link up by U-Boot, exactly as the ABL leaves it, so the XNU driver does not initialise the PHY or the link.",
 ]
 configuration = [
