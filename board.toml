@@ -29,7 +29,7 @@ name = "rmx1971"
 soc = "SDM710"
 soc_source = "sdm710"
 os_profile = "ipados-17.7.11-21H461"
-description = "Realme 5 Pro"
+description = "Realme 5 Pro (RMX1971)"
 kit = "rmx1971"
 
 # ArmDTPlatform drives the platform expert from dts/rmx1971.dts. ArmCpu is the

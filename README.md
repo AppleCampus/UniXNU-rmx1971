@@ -1,7 +1,24 @@
-# rmx1971-unixnu
+# UniXNU for the Realme 5 Pro (rmx1971)
 
-XNU on the **Realme 5 Pro** (`RMX1971`, Qualcomm SM712 / SDM712), reached through
-a UEFI environment that this repository also builds.
+[![U-Boot](https://github.com/AppleCampus/rmx1971-unixnu/actions/workflows/uboot.yml/badge.svg)](https://github.com/AppleCampus/rmx1971-unixnu/actions/workflows/uboot.yml)
+[![kernel](https://github.com/AppleCampus/rmx1971-unixnu/actions/workflows/unixnu-kernel.yml/badge.svg)](https://github.com/AppleCampus/rmx1971-unixnu/actions/workflows/unixnu-kernel.yml)
+[![payload](https://github.com/AppleCampus/rmx1971-unixnu/actions/workflows/unixnu-efi.yml/badge.svg)](https://github.com/AppleCampus/rmx1971-unixnu/actions/workflows/unixnu-efi.yml)
+
+[UniXNU](https://github.com/UniXNU/UniXNU) device support for the **Realme 5 Pro**
+(RMX1971, Qualcomm Snapdragon 712 / SDM712): bringing the source XNU kernel and
+an iPadOS userland up on this phone, through a UEFI environment that this
+repository also builds.
+
+Format 2 port (`schema_version = 2`): the board selects shared ARM64, SoC and OS
+profiles and supplies only its own wiring. The shared SDM710 layer is
+[UniXNU-sdm710-common](https://github.com/57UU/UniXNU-sdm710-common); SDM712 is
+the same die with a 100 MHz higher big-core clock.
+
+| Repository | Contents |
+| --- | --- |
+| [UniXNU](https://github.com/UniXNU/UniXNU) | build driver, kernel patch series, kits, documentation |
+| [UniXNU-sdm710-common](https://github.com/57UU/UniXNU-sdm710-common) | shared SDM710/712 SoC layer: GIC-500, 19.2 MHz counter, PSCI |
+| **rmx1971-unixnu** (this) | board description, device tree, U-Boot firmware, UFS root driver, payload assembly |
 
 Three layers, all of them working on hardware:
 
@@ -23,20 +40,20 @@ UEFI environment, and [Xiaomi Mi 8 SE](https://github.com/57UU/UniXNU-sirius)
 payload volume on a spare partition, `UniXNU.efi` started from
 `\EFI\BOOT\BOOTAA64.EFI`, then `DarwinBoot`, then XNU.
 
-## State
+## Status
 
-| Piece | State |
+| Stage | State |
 | --- | --- |
-| U-Boot on the ABL splash | **confirmed** — banner, `Model: Realme 5 Pro (RMX1971)`, `=>` prompt |
-| UFS (`ufshc@1d84000`) | **confirmed** — HS-GEAR3, six LUNs enumerated, `part list` reads the GPT |
-| Partition map | **confirmed** — see [Where everything lives](#where-everything-lives); `boot` is LUN4 LBA `0xc505` |
-| EFI boot manager finding the ESP | **confirmed** — U-Boot binds the FAT volume and starts `\EFI\BOOT\BOOTAA64.EFI` |
-| `UniXNU.efi` | **confirmed** — its menu draws on the framebuffer and it reads `unixnu.toml` |
-| `DarwinBoot.efi` handing over to XNU | **confirmed** — stage bars drawn, kernel entry reached |
-| XNU itself | **confirmed** — 8 CPUs online, 19.2 MHz counter, console on the panel |
+| U-Boot on the ABL splash | **working** — banner, `Model: Realme 5 Pro (RMX1971)`, `=>` prompt |
+| UFS (`ufshc@1d84000`) | **working** — HS-GEAR3, six LUNs enumerated, `part list` reads the GPT |
+| Partition map | **known** — [where everything lives](#where-everything-lives); `boot` is LUN4 LBA `0xc505` |
+| EFI boot manager finding the ESP | **working** — U-Boot binds the FAT volume and starts `\EFI\BOOT\BOOTAA64.EFI` |
+| `UniXNU.efi` | **working** — its menu draws on the framebuffer and it reads `unixnu.toml` |
+| `DarwinBoot.efi` handing over to XNU | **working** — stage bars drawn, kernel entry reached |
+| XNU itself | **working** — 8 CPUs online, 19.2 MHz counter, console on the panel |
 | Root device | **in progress** — the kernel reaches `vfs_mountroot` and retries; the read-only UFS driver for it is in `patches/xnu/` and builds, first hardware run pending |
-| USB gadget (U-Boot's own fastboot) | dead end so far — `fastboot usb 0` waits for a host that never enumerates. Everything goes through the ABL instead |
-| Panel init beyond the ABL splash | not attempted, and not needed: the ABL leaves a lit framebuffer at `0x9c000000` |
+| USB gadget (U-Boot's own fastboot) | blocked — `fastboot usb 0` waits for a host that never enumerates; everything goes through the ABL instead |
+| Panel init beyond the ABL splash | not needed — the ABL leaves a lit framebuffer at `0x9c000000` |
 | Touch / keys at the U-Boot prompt | unavailable — `stdin=serial,button-kbd`, no UART on retail units. Every experiment is compiled into the environment |
 
 Retail units have no UART. The framebuffer is the only output anyone gets, which
