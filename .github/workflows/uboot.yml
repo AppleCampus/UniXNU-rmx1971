@@ -3,6 +3,21 @@ name: U-Boot for rmx1971
 on:
   push:
     branches: [main]
+    # Only the inputs of this build. Without the filter every UniXNU-side commit
+    # would rebuild the firmware for six minutes to produce identical bytes.
+    paths:
+      - "board/**"
+      - "dts/**"
+      - "patches/**"
+      - "stub/**"
+      - "firmware/**"
+      - "scripts/build-in-tree.sh"
+      - "scripts/overlay.sh"
+      - "scripts/build-stub.sh"
+      - "scripts/pack-boot.py"
+      - "scripts/patch-stock-dtb.py"
+      - "scripts/report-header.py"
+      - ".github/workflows/uboot.yml"
   workflow_dispatch:
 
 jobs:
@@ -16,7 +31,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq gcc-aarch64-linux-gnu bison flex libssl-dev \
             libgnutls28-dev uuid-dev python3 python3-setuptools \
-            device-tree-compiler
+            device-tree-compiler clang lld
 
       - name: Fetch U-Boot (SDM710 branch)
         run: |
@@ -29,19 +44,27 @@ jobs:
       - name: Build paint stub
         run: bash scripts/build-stub.sh out-stub
 
+      # Separate from the firmware build on purpose: if this toolchain path
+      # breaks, the boot images below are still worth shipping, and the
+      # artifact step is told to tolerate a missing hello.efi.
+      - name: Build EFI payload
+        continue-on-error: true
+        run: bash scripts/build-payload.sh out-payload
+
       - name: Build and pack
         run: bash scripts/build-in-tree.sh uboot out
 
       - name: Report
         run: |
           sha256sum out/boot.img out/boot-boarddtb.img out/boot-probe.img \
+            out/boot-diag.img out/boot-usb.img \
             out-stub/boot-stub.img out-stub/paint-fb.bin \
             out/stock-fb.bin \
             out/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb \
             out/u-boot+dtb.bin > out/SHA256SUMS
           cat out/SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          grep -E "^(CONFIG_EFI_LOADER|CONFIG_VIDEO_SIMPLE|CONFIG_SYS_CONSOLE_IS_IN_ENV|CONFIG_UFS_QCOM|CONFIG_DEFAULT_DEVICE_TREE)=" \
+          grep -E "^(CONFIG_EFI_LOADER|CONFIG_VIDEO_SIMPLE|CONFIG_SYS_CONSOLE_IS_IN_ENV|CONFIG_UFS_QCOM|CONFIG_DEFAULT_DEVICE_TREE|CONFIG_EFI_PARTITION|CONFIG_CMD_PART|CONFIG_CMD_FAT|CONFIG_FS_FAT|CONFIG_CMD_FS_GENERIC|CONFIG_FASTBOOT_FLASH_BLOCK|CONFIG_CMD_FASTBOOT|CONFIG_FASTBOOT_FLASH_BLOCK_INTERFACE_NAME|CONFIG_USB_DWC3_GADGET)=" \
             out/.config >> "$GITHUB_STEP_SUMMARY" || true
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo '### paint-fb' >> "$GITHUB_STEP_SUMMARY"
@@ -57,13 +80,17 @@ jobs:
         with:
           name: rmx1971-uboot
           include-hidden-files: true
+          if-no-files-found: warn
           path: |
             out/boot.img
             out/boot-boarddtb.img
             out/boot-probe.img
+            out/boot-diag.img
+            out/boot-usb.img
             out/SHA256SUMS
             out/dts/upstream/src/arm64/qcom/sdm710-realme-rmx1971.dtb
             out/.config
             out-stub/boot-stub.img
             out-stub/paint-fb.bin
             out-stub/paint-fb.dis
+            out-payload/hello.efi
