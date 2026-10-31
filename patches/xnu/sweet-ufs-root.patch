@@ -99,7 +99,7 @@ diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/sweet_ufs.c
-@@ -0,0 +1,583 @@
+@@ -0,0 +1,586 @@
 +/*
 + * Internal UFS root device for the Realme 5 Pro (RMX1971, codename "sweet"), read-only.
 + *
@@ -162,6 +162,7 @@ new file mode 100644
 +volatile uint32_t native_ufs_matched;
 +volatile uint32_t native_ufs_root_step;
 +const char *volatile native_ufs_root_failure;
++static char ufs_status[48];
 +#define BP_STAGE(text) do { if (boot_progress_stage) boot_progress_stage(text); } while (0)
 +
 +extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
@@ -659,7 +660,8 @@ new file mode 100644
 +		int error = sweet_ufs_init();
 +		if (error) {
 +			native_ufs_root_step = 2;
-+			native_ufs_root_failure = "sweet_ufs: init failed";
++			snprintf(ufs_status, sizeof(ufs_status), "init failed %d", error);
++			native_ufs_root_failure = ufs_status;
 +			if (!reported) {
 +				char line[72];
 +				reported = 1;
@@ -672,7 +674,8 @@ new file mode 100644
 +	*dev = su.bdev;
 +	native_ufs_matched = 1;
 +	native_ufs_root_step = 3;
-+	native_ufs_root_failure = "sweet_ufs: partition found";
++	snprintf(ufs_status, sizeof(ufs_status), "ok %s LUN%u", ufs_want, su.lun);
++	native_ufs_root_failure = ufs_status;
 +	if (!reported) {
 +		char line[96];
 +		reported = 1;
