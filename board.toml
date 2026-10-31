@@ -147,6 +147,10 @@ kernel_args = [
   # prints first: the host handover and the partition geometry.
   "rd=ufsroot0",
   "ufsroot=userdata",
+  # Printed in the panel's title bar ("[ufsb1] UniXNU boot diagnostics ..."), so a
+  # photograph identifies which image is running. Cheap, and it settles "did this
+  # flash actually take" without guessing from behaviour.
+  "sheng-build-tag=ufsb1",
 ]
 
 [payload.adt]

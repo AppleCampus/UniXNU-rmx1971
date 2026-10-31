@@ -99,7 +99,7 @@ diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/sweet_ufs.c
-@@ -0,0 +1,560 @@
+@@ -0,0 +1,583 @@
 +/*
 + * Internal UFS root device for the Realme 5 Pro (RMX1971, codename "sweet"), read-only.
 + *
@@ -146,6 +146,22 @@ new file mode 100644
 +/* Weak on purpose: the bootstrap pass of the XNU build links without the kit archives,
 + * and a strong reference here would turn that expected link failure into a hard error. */
 +extern void boot_progress_stage(const char *text) __attribute__((weak));
++
++/*
++ * The dashboard's "UFS TIME" row is fed by these; the kit ships weak dummies, so
++ * defining them here makes the row report this driver instead of zeros. Unlike the
++ * stage line, which bsd_init overwrites every five seconds, this row persists, and
++ * a photograph of it says whether the probe ran at all and how far it got.
++ */
++volatile uint64_t native_ufs_block_reads;
++volatile uint64_t native_ufs_verified_blocks;
++volatile uint64_t native_ufs_block_failures;
++volatile uint32_t native_ufs_integrity_failures;
++volatile uint32_t native_ufs_blocks_published;
++volatile uint32_t native_ufs_probe_calls;
++volatile uint32_t native_ufs_matched;
++volatile uint32_t native_ufs_root_step;
++const char *volatile native_ufs_root_failure;
 +#define BP_STAGE(text) do { if (boot_progress_stage) boot_progress_stage(text); } while (0)
 +
 +extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
@@ -637,9 +653,13 @@ new file mode 100644
 +{
 +	static int reported;
 +
++	native_ufs_probe_calls++;                 /* the row proves this was entered */
++	native_ufs_root_step = 1;
 +	if (!su.ready) {
 +		int error = sweet_ufs_init();
 +		if (error) {
++			native_ufs_root_step = 2;
++			native_ufs_root_failure = "sweet_ufs: init failed";
 +			if (!reported) {
 +				char line[72];
 +				reported = 1;
@@ -650,6 +670,9 @@ new file mode 100644
 +		}
 +	}
 +	*dev = su.bdev;
++	native_ufs_matched = 1;
++	native_ufs_root_step = 3;
++	native_ufs_root_failure = "sweet_ufs: partition found";
 +	if (!reported) {
 +		char line[96];
 +		reported = 1;
