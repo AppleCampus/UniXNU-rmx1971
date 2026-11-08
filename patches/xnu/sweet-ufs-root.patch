@@ -50,7 +50,7 @@ diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
 diff --git a/bsd/vfs/vfs_subr.c b/bsd/vfs/vfs_subr.c
 --- a/bsd/vfs/vfs_subr.c
 +++ b/bsd/vfs/vfs_subr.c
-@@ -1220,6 +1220,52 @@
+@@ -1220,6 +1220,63 @@
  	vnode_t bdevvp_rootvp;
  
  	/*
@@ -89,6 +89,17 @@ diff --git a/bsd/vfs/vfs_subr.c b/bsd/vfs/vfs_subr.c
 +		if (ufs_state == 0 && (rootdev == NODEV || rootdev == makedev(6, 0))) {
 +			char stage[64];
 +
++			{
++				extern char native_vfs_names[] __attribute__((weak));
++				if (&native_vfs_names[0]) {
++					struct vfstable *e;
++					native_vfs_names[0] = 0;
++					for (e = vfsconf; e; e = e->vfc_next) {
++						strlcat(native_vfs_names, e->vfc_name, 56);
++						strlcat(native_vfs_names, " ", 56);
++					}
++				}
++			}
 +			rootdev = ufs_dev;
 +			printf("RMX1971 UFS: rootdev <- 0x%x\n", (unsigned)rootdev);
 +			if (boot_progress_stage != NULL) {
@@ -103,7 +114,7 @@ diff --git a/bsd/vfs/vfs_subr.c b/bsd/vfs/vfs_subr.c
  	 * Reset any prior "unmounting everything" state.  This handles the
  	 * situation where mount root and then unmountall and re-mountroot
  	 * a new image (see bsd/kern/imageboot.c).
-@@ -1237,12 +1283,26 @@
+@@ -1237,12 +1294,26 @@
  		KDBG_RELEASE(DBG_MOUNTROOT | DBG_FUNC_END, error, 0);
  		return error;
  	}
@@ -136,7 +147,7 @@ diff --git a/bsd/vfs/vfs_subr.c b/bsd/vfs/vfs_subr.c
  	/*
  	 * 4951998 - code we call in vfc_mountroot may replace rootvp
  	 * so keep a local copy for some house keeping.
-@@ -1253,6 +1313,13 @@
+@@ -1253,6 +1324,13 @@
  		if (vfsp->vfc_mountroot == NULL
  		    && !ISSET(vfsp->vfc_vfsflags, VFC_VFSCANMOUNTROOT)) {
  			continue;
@@ -154,7 +165,7 @@ diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/sweet_ufs.c
-@@ -0,0 +1,597 @@
+@@ -0,0 +1,602 @@
 +/*
 + * Internal UFS root device for the Realme 5 Pro (RMX1971, codename "sweet"), read-only.
 + *
@@ -225,6 +236,11 @@ new file mode 100644
 +/* The dev_t the root takeover handed to vfs_mountroot. bdevvp() opens by major number,
 + * so a driver that registered under a different one than it published shows up here. */
 +volatile uint32_t native_ufs_rootdev_value;
++/* Names of the filesystems registered in vfsconf when the mount walk ran, space
++ * separated. The walk attempted four entries and read no block, which a filesystem
++ * that starts by reading a superblock cannot do, so the names are what settle whether
++ * the list holds anything that can mount at all. */
++char native_vfs_names[56];
 +static char ufs_status[48];
 +#define BP_STAGE(text) do { if (boot_progress_stage) boot_progress_stage(text); } while (0)
 +
