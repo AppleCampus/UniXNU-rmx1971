@@ -125,6 +125,7 @@ extern volatile uint32_t native_ufs_probe_calls __attribute__((weak_import)), na
 extern volatile uint32_t native_ufs_root_step __attribute__((weak_import));
 extern const char *volatile native_ufs_root_failure __attribute__((weak_import));
 extern volatile uint32_t native_ufs_host_hce __attribute__((weak_import)), native_ufs_host_hcs __attribute__((weak_import));
+extern volatile uint32_t native_ufs_rootdev_value __attribute__((weak_import));
 extern volatile uint32_t native_virtio_ready, native_virtio_read_requests, native_virtio_read_failures;
 extern volatile uint64_t native_virtio_verified_blocks;
 extern void native_ufs_progress_text(char *, size_t);
@@ -280,8 +281,8 @@ static void draw(unsigned now) {
     // Row 47, not row 2: the topology block below also writes row 2, and it won, so this line never appeared
     // in a photographed boot. Row 47 is unused and sits right under the UFS TIME row.
     const char *why=native_ufs_root_failure;
-    snprintf(b,sizeof(b),"UFS probe=%u match=%u step=%u hce=%08x hcs=%08x %.24s",
-      native_ufs_probe_calls,native_ufs_matched,native_ufs_root_step,
+    snprintf(b,sizeof(b),"UFS step=%u probe=%u rd=%08x hce=%x hcs=%x %.20s",
+      native_ufs_root_step,native_ufs_probe_calls,native_ufs_rootdev_value,
       native_ufs_host_hce,native_ufs_host_hcs,why?why:"-");
     line(47,b,0xffffffff);
   }

@@ -103,11 +103,44 @@ diff --git a/bsd/vfs/vfs_subr.c b/bsd/vfs/vfs_subr.c
  	 * Reset any prior "unmounting everything" state.  This handles the
  	 * situation where mount root and then unmountall and re-mountroot
  	 * a new image (see bsd/kern/imageboot.c).
+@@ -1237,12 +1283,26 @@
+ 		KDBG_RELEASE(DBG_MOUNTROOT | DBG_FUNC_END, error, 0);
+ 		return error;
+ 	}
+-	if ((error = bdevvp(rootdev, &rootvp))) {
+-		printf("vfs_mountroot: can't setup bdevvp\n");
+-
+-		KDBG_RELEASE(DBG_MOUNTROOT | DBG_FUNC_END, error, 1);
+-		return error;
+-	}
++	{
++		extern volatile uint32_t native_ufs_root_step __attribute__((weak));
++
++		if (&native_ufs_root_step && native_ufs_root_step == 3) {
++			native_ufs_root_step = 4;
++		}
++		if ((error = bdevvp(rootdev, &rootvp))) {
++			if (&native_ufs_root_step && native_ufs_root_step == 4) {
++				native_ufs_root_step = 5;
++			}
++			printf("vfs_mountroot: can't setup bdevvp\n");
++
++			KDBG_RELEASE(DBG_MOUNTROOT | DBG_FUNC_END, error, 1);
++			return error;
++		}
++		if (&native_ufs_root_step && native_ufs_root_step == 4) {
++			native_ufs_root_step = 6;
++		}
++	}
++
+ 	/*
+ 	 * 4951998 - code we call in vfc_mountroot may replace rootvp
+ 	 * so keep a local copy for some house keeping.
 diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/sweet_ufs.c
-@@ -0,0 +1,593 @@
+@@ -0,0 +1,597 @@
 +/*
 + * Internal UFS root device for the Realme 5 Pro (RMX1971, codename "sweet"), read-only.
 + *
@@ -175,6 +208,9 @@ new file mode 100644
 + * which condition failed. */
 +volatile uint32_t native_ufs_host_hce;
 +volatile uint32_t native_ufs_host_hcs;
++/* The dev_t the root takeover handed to vfs_mountroot. bdevvp() opens by major number,
++ * so a driver that registered under a different one than it published shows up here. */
++volatile uint32_t native_ufs_rootdev_value;
 +static char ufs_status[48];
 +#define BP_STAGE(text) do { if (boot_progress_stage) boot_progress_stage(text); } while (0)
 +
@@ -687,6 +723,7 @@ new file mode 100644
 +		}
 +	}
 +	*dev = su.bdev;
++	native_ufs_rootdev_value = (uint32_t)su.bdev;
 +	native_ufs_matched = 1;
 +	native_ufs_root_step = 3;
 +	snprintf(ufs_status, sizeof(ufs_status), "ok %s LUN%u", ufs_want, su.lun);
