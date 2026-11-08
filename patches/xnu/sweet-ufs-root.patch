@@ -107,7 +107,7 @@ diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/sweet_ufs.c
-@@ -0,0 +1,586 @@
+@@ -0,0 +1,593 @@
 +/*
 + * Internal UFS root device for the Realme 5 Pro (RMX1971, codename "sweet"), read-only.
 + *
@@ -170,6 +170,11 @@ new file mode 100644
 +volatile uint32_t native_ufs_matched;
 +volatile uint32_t native_ufs_root_step;
 +const char *volatile native_ufs_root_failure;
++/* Controller state as first read in ufs_take_over_host(). When the driver refuses to
++ * start, the reason is one of these two words, and "init failed 6" alone cannot say
++ * which condition failed. */
++volatile uint32_t native_ufs_host_hce;
++volatile uint32_t native_ufs_host_hcs;
 +static char ufs_status[48];
 +#define BP_STAGE(text) do { if (boot_progress_stage) boot_progress_stage(text); } while (0)
 +
@@ -403,6 +408,8 @@ new file mode 100644
 +ufs_take_over_host(void)
 +{
 +	uint32_t hce = ufs_rd(REG_HCE), hcs = ufs_rd(REG_HCS);
++	native_ufs_host_hce = hce;
++	native_ufs_host_hcs = hcs;
 +	if (!(hce & 1) || !(hcs & HCS_DP) || !(hcs & HCS_UTRLRDY)) {
 +		printf("SWEET UFS: host not ready (hce 0x%x hcs 0x%x)\n", hce, hcs);
 +		return ENXIO;
