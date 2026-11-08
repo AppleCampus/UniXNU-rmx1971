@@ -141,12 +141,23 @@ kernel_args = [
   # driver instead of waiting for an IOMedia to appear; ufsroot= names the GPT partition
   # it should expose (userdata, LUN0 entry 14 at LBA 0x198900 on this unit).
   #
-  # userdata still holds Android's encrypted filesystem, so the mount itself will fail with
-  # errno 19 and the kernel will retry -- that is the expected outcome of this step and it
-  # costs nothing, because the driver refuses writes. What matters is the two lines it
-  # prints first: the host handover and the partition geometry.
+  # userdata still holds Android's filesystem, so the mount itself will fail and the kernel
+  # will retry -- that is the expected outcome of this step, and it costs nothing because
+  # the driver refuses writes. What matters is what happens first: the host handover, the
+  # partition geometry, and whether APFS gets far enough to issue a read. Once it does, the
+  # block counts in the panel's UFS row leave zero, which is the proof that the chain from
+  # UFS through the block device layer into a filesystem is complete and only the volume
+  # contents are missing.
   "rd=ufsroot0",
   "ufsroot=userdata",
+  # APFS is not compiled into this kernel: conf/files carries no filesystem at all, so
+  # vfsconf is empty and vfs_mountroot's walk tries nothing and returns ENODEV -- which
+  # is where "cannot mount root, errno = 19" came from, not from the contents of the
+  # partition. UniXNU loads it as a kext from the prelinked kernel
+  # (OSKextLoadKextWithIdentifier at the end of the offline-component probes), and that
+  # call is gated on this argument. Only a DEVELOPMENT build contains the probe; this
+  # board's kernel is one, because it links the display probe's kit.
+  "offline-apfs-load=1",
   # Printed in the panel's title bar ("[ufsb1] UniXNU boot diagnostics ..."), so a
   # photograph identifies which image is running. Cheap, and it settles "did this
   # flash actually take" without guessing from behaviour.
