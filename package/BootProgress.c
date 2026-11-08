@@ -126,6 +126,11 @@ extern volatile uint32_t native_ufs_root_step __attribute__((weak_import));
 extern const char *volatile native_ufs_root_failure __attribute__((weak_import));
 extern volatile uint32_t native_ufs_host_hce __attribute__((weak_import)), native_ufs_host_hcs __attribute__((weak_import));
 extern volatile uint32_t native_ufs_rootdev_value __attribute__((weak_import));
+// Set by UniXNU's offline-component probes: whether the apfs kext loaded at all, and
+// whether a vfsconf entry named "apfs" appeared afterwards. Without these two, a step
+// that never advances cannot say whether the walk was empty or the volume was rejected.
+extern volatile int native_apfs_load_status __attribute__((weak_import));
+extern volatile uint32_t native_apfs_registered __attribute__((weak_import));
 extern volatile uint32_t native_virtio_ready, native_virtio_read_requests, native_virtio_read_failures;
 extern volatile uint64_t native_virtio_verified_blocks;
 extern void native_ufs_progress_text(char *, size_t);
@@ -281,9 +286,9 @@ static void draw(unsigned now) {
     // Row 47, not row 2: the topology block below also writes row 2, and it won, so this line never appeared
     // in a photographed boot. Row 47 is unused and sits right under the UFS TIME row.
     const char *why=native_ufs_root_failure;
-    snprintf(b,sizeof(b),"UFS step=%u probe=%u rd=%08x hce=%x hcs=%x %.20s",
-      native_ufs_root_step,native_ufs_probe_calls,native_ufs_rootdev_value,
-      native_ufs_host_hce,native_ufs_host_hcs,why?why:"-");
+    snprintf(b,sizeof(b),"UFS step=%u rd=%08x apfs=%d/%u %.18s",
+      native_ufs_root_step,native_ufs_rootdev_value,
+      native_apfs_load_status,native_apfs_registered,why?why:"-");
     line(47,b,0xffffffff);
   }
   snprintf(b,sizeof(b),"TCR=%llx TTBR0=%llx TTBR1=%llx SCTLR=%llx",tcr,ttbr0,ttbr1,sctlr); line(3,b,0xffffffff);

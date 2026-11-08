@@ -136,6 +136,20 @@ diff --git a/bsd/vfs/vfs_subr.c b/bsd/vfs/vfs_subr.c
  	/*
  	 * 4951998 - code we call in vfc_mountroot may replace rootvp
  	 * so keep a local copy for some house keeping.
+@@ -1253,6 +1313,13 @@
+ 		if (vfsp->vfc_mountroot == NULL
+ 		    && !ISSET(vfsp->vfc_vfsflags, VFC_VFSCANMOUNTROOT)) {
+ 			continue;
++		}
++		{
++			extern volatile uint32_t native_ufs_root_step __attribute__((weak));
++
++			if (&native_ufs_root_step && native_ufs_root_step >= 6) {
++				native_ufs_root_step++;
++			}
+ 		}
+ 
+ 		mp = vfs_rootmountalloc_internal(vfsp, "root_device");
 diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 new file mode 100644
 --- /dev/null

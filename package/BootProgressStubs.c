@@ -149,6 +149,8 @@ __attribute__((weak)) volatile uint64_t native_ufs_block_reads, native_ufs_verif
 __attribute__((weak)) volatile uint32_t native_ufs_integrity_failures, native_ufs_blocks_published, native_ufs_probe_calls, native_ufs_matched, native_ufs_root_step;
 __attribute__((weak)) const char *volatile native_ufs_root_failure;
 __attribute__((weak)) volatile uint32_t native_ufs_host_hce, native_ufs_host_hcs, native_ufs_rootdev_value;
+__attribute__((weak)) volatile int native_apfs_load_status = -1;
+__attribute__((weak)) volatile uint32_t native_apfs_registered;
 __attribute__((weak)) volatile uint32_t native_virtio_ready, native_virtio_read_requests, native_virtio_read_failures;
 __attribute__((weak)) volatile uint64_t native_virtio_verified_blocks;
 __attribute__((weak)) void native_ufs_progress_text(char *out, size_t n) { if (n) { out[0] = 0; } }
