@@ -276,6 +276,9 @@ jobs:
         with:
           name: rmx1971-payload
           if-no-files-found: error
+          # 19 MiB per run; the 90-day default is what pushed this account past the
+          # included artifact storage. Seven days covers a flash plus a rollback.
+          retention-days: 7
           path: |
             rmx1971-payload.img
             unixnu-src/out/*/*/*/payload/payload.json

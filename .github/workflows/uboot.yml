@@ -81,6 +81,10 @@ jobs:
           name: rmx1971-uboot
           include-hidden-files: true
           if-no-files-found: warn
+          # The default is 90 days, and artifact storage is billed by GB-month past the
+          # 500 MB every plan includes. Five boot images per run fills that up in a
+          # fortnight. A week is enough to flash and fall back from one image.
+          retention-days: 7
           path: |
             out/boot.img
             out/boot-boarddtb.img
