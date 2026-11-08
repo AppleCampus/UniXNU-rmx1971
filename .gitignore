@@ -1,6 +1,11 @@
 out/
 /uboot/
 *.o
+*.a
 *.dtb
 *.img
 *.gz
+*.macho
+*.efi
+*.zip
+*.tgz
