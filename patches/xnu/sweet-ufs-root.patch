@@ -21,8 +21,8 @@ diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
 +	//
 +	//	Kept even though vfs_mountroot now probes the driver itself: this is the only
 +	//	place that sees how "rd" arrived in boot_args, and that is worth one log line.
-+	//	IOFindBSDRoot is not on the path this board takes (rootdev was still NODEV when
-+	//	vfs_mountroot ran), so nothing here is required for the boot to work.
++	//	IOFindBSDRoot finds nothing to match on this board, so this branch stays a
++	//	diagnostic and the mount path is the one in vfs_subr.c.
 +	//
 +	{
 +		extern int sweet_ufs_rootdev(dev_t *dev);
@@ -50,18 +50,19 @@ diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
 diff --git a/bsd/vfs/vfs_subr.c b/bsd/vfs/vfs_subr.c
 --- a/bsd/vfs/vfs_subr.c
 +++ b/bsd/vfs/vfs_subr.c
-@@ -1220,6 +1220,44 @@
+@@ -1220,6 +1220,52 @@
  	vnode_t bdevvp_rootvp;
  
  	/*
 +	 * RMX1971: make rootdev point at the internal UFS before anything tries to use it.
 +	 *
-+	 * IOFindBSDRoot never assigned it: with the driver linked in, the panel showed this
-+	 * function being entered every five seconds with no line from either the driver or
-+	 * the panic path hooked into IOKitBSDInit, and rootdev stayed NODEV -- so bdevvp()
-+	 * failed here before a single filesystem was asked. Probing on this path instead is
-+	 * provably reachable, and assigning rootdev turns the retry in bsd_init into a real
-+	 * mount attempt that can report a filesystem-level error.
++	 * setconf() runs first, and its lookup leaves rootdev at makedev(6, 0) -- "sd0a",
++	 * the fallback bsd_init.c assigns when IOFindBSDRoot fails. It is not NODEV here,
++	 * so an earlier version of this block, which only took over an unset rootdev, never
++	 * ran: bdevvp() was asked for a device no driver owns, vfs_mountroot() returned an
++	 * error, and the retry loop printed "cannot mount root" every five seconds. Taking
++	 * over both the unset device and that fallback is what puts this driver on the mount
++	 * path at all. A root that IOFindBSDRoot genuinely found is left alone.
 +	 *
 +	 * The driver caches its own state, so repeated entries are free. The boot progress
 +	 * hook is weak because the bootstrap pass of the XNU build links without the kit
@@ -77,15 +78,22 @@ diff --git a/bsd/vfs/vfs_subr.c b/bsd/vfs/vfs_subr.c
 +			ufs_state = sweet_ufs_rootdev(&ufs_dev);
 +			printf("RMX1971 UFS: driver init -> %d, dev 0x%x, rootdev 0x%x\n",
 +			    ufs_state, (unsigned)ufs_dev, (unsigned)rootdev);
++			if (boot_progress_stage != NULL) {
++				char stage[64];
++
++				snprintf(stage, sizeof(stage), "UFS init %d rootdev 0x%x",
++				    ufs_state, (unsigned)rootdev);
++				boot_progress_stage(stage);
++			}
 +		}
-+		if (ufs_state == 0 && rootdev == NODEV) {
++		if (ufs_state == 0 && (rootdev == NODEV || rootdev == makedev(6, 0))) {
 +			char stage[64];
 +
 +			rootdev = ufs_dev;
 +			printf("RMX1971 UFS: rootdev <- 0x%x\n", (unsigned)rootdev);
 +			if (boot_progress_stage != NULL) {
-+				snprintf(stage, sizeof(stage), "UFS rootdev <- 0x%x",
-+				    (unsigned)rootdev);
++				snprintf(stage, sizeof(stage), "UFS rootdev 0x%x dev %d,%d",
++				    (unsigned)rootdev, major(ufs_dev), minor(ufs_dev));
 +				boot_progress_stage(stage);
 +			}
 +		}
